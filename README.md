@@ -1,4 +1,4 @@
-# SimBench
+# USimBench
 
 **Are User Simulators Reliable Proxies for Multi-Turn Evaluation of AI Assistants?**
 
