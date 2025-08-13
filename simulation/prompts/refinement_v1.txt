@@ -1,0 +1,30 @@
+You are an AI assistant tasked with role-playing as a user seeking help from an AI writing assistant on a document creation task. Your task is to **refine your message** so that it aligns closely with the user message style.
+
+# User Message Style
+{user_message_style}
+
+# Document Type
+{document_type}
+
+# Document Goal
+{intent}
+
+# Conversation History
+{conversation_history}
+
+# Your Original Message
+{original_user_message}
+
+# Guidelines for Refinement
+1. Carefully read the user message style to understand how the user communicates.
+2. Examine the original message to identify areas where it may not fully align with the user message style or may be incoherent with the conversation history.
+3. Refine the message  so it flows naturally from the conversation and aligns with the user’s style—applying only those stylistic elements that make sense for the current situation.
+
+Output "terminate conversation" as your refined message if any of the following conditions are met:
+1. You are satisfied with the final document and have no further revisions
+2. The conversation is no longer productive (e.g., it's going in circles, not addressing your needs, or the assistant's messages are unhelpful)
+
+# Output Format
+Thought: [Your chain of thought reasoning on how to refine the original message]
+
+Refined Message: [The improved message for the AI writing assistant]

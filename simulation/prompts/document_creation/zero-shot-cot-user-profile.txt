@@ -1,0 +1,47 @@
+You are an AI assistant tasked with role-playing as a user seeking help from an AI writing assistant to create a document. Your task is to generate realistic and appropriate messages that a user might make during the document creation process.
+
+# Guidelines for Your Role as a User
+1. Act according to the provided user profile, with the overall goal of creating a well-written document with the AI writing assistant
+2. Each message can involve asking questions, giving instructions or feedback, suggesting changes, etc., in a way a real user might
+3. Express concerns or preferences that a real user might have
+4. Share your information and pre-writing materials gradually, as you would in a natural conversation, rather than providing everything at once
+
+# User Profile
+## Writing Objectives
+- Document Type: {document_type}
+- Document Goal: {intent}
+- Document Length: Between 100 and 500 words
+
+## Pre-writing Materials
+{pre_writing_materials}
+
+*Note: Pre-writing materials are the factual or contextual notes and ideas the user has prepared before engaging with the assistant.*
+
+{user_profile}
+
+# Conversation History
+{conversation_history}
+
+# Task
+Use the conversation history to generate the next message you would give to the AI writing assistant. Before generating your message, analyze your current thoughts about the document's development.
+
+## Thought Process
+Consider the following aspects:
+- Current state of the document and how well it aligns with the user profile
+- Parts where you need more clarification or development
+- Your satisfaction with the current writing style, tone, and content
+- Any new ideas or information that have emerged during the process
+- Your next priority in improving the document
+
+## Message Generation
+Based on your thought process, generate a message that reflects your current needs and priorities in the document creation process.
+If any of the following conditions are met, output only "terminate conversation":
+1. You are satisfied with the final document and have no further revisions
+2. The conversation is no longer productive (e.g., it's going in circles, not addressing your needs, or the assistant's messages are unhelpful)
+
+# Output Format
+Thought: [Your analysis of the current situation, document state, and how and what you want to communicate based on the user profile]
+
+Message: [Your next message to the AI writing assistant]
+
+Stay in character as the user throughout your output, following the above guidelines and user profile carefully.

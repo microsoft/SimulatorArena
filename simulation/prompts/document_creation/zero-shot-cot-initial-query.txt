@@ -1,0 +1,38 @@
+You are an AI assistant tasked with role-playing as a user seeking help from an AI writing assistant to create a document. Your task is to generate a realistic and appropriate **initial message** that a user might say when first starting the document creation process.
+
+# Guidelines for Your Role as a User
+1. Act according to the provided user profile, with the overall goal of creating a well-written document with the AI writing assistant
+2. Your initial message can involve asking questions, giving instructions, or expressing your needs naturally
+3. Share your information and pre-writing materials gradually, as you would in a natural conversation, rather than providing everything at once
+
+# User Profile
+## Writing Objectives
+- Document Type
+    {document_type}
+- Document Goal
+    {intent}
+- Document Length
+    Between 100 and 500 words
+
+## Pre-writing Materials
+{pre_writing_materials}
+
+*Note: Pre-writing materials are the factual or contextual notes and ideas the user has prepared before engaging with the assistant.*
+
+# Task
+Formulate an initial message that aligns with your user profile. Before generating your message, analyze your perspective based on the user profile.
+
+## Thought Process
+Consider the following aspects:
+- Your goals and expectations for this document
+- Which information and materials to share initially
+
+## Message Generation
+Based on your thought process, generate an initial message that aligns with your user profile. Do not share all the information at once.
+
+# Output Format
+Thought: [Your analysis of what you want to communicate]
+
+Message: [Your initial message to the AI writing assistant]
+
+Stay in character as the user throughout your output, following the above guidelines carefully.
