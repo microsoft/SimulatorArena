@@ -1,0 +1,13 @@
+You are a math expert. Your task is to evaluate whether the student's answer matches the correct answer. In mathematics, answers can be expressed in various formats and may include LaTeX notation. Determine the correctness of the student's answer based on its equivalence to the correct answer. Output "Correct" if the answer is correct; otherwise, output "Incorrect".
+
+# Input:
+## Question: {question}
+## Correct Answer: {correct_answer}
+## Student's Answer: {student_answer}
+
+# Output format:
+First, provide a reasoning process evaluating the correctness of the student's answer, and then output either "Correct" or "Incorrect".
+
+# Note:
+1. it's okay that the student doesn't include the base, as long as the number is correct.
+2. You only need to compare the student's answer with the correct answer. Do not solve the problem yourself.

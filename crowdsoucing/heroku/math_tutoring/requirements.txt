@@ -1,0 +1,11 @@
+openai
+gradio==4.41.0
+pandas
+datasets
+huggingface_hub
+promptflow
+msal
+anthropic
+mistralai
+azure-ai-inference
+fastapi==0.112.4

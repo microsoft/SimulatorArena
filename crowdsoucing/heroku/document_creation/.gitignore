@@ -1,0 +1,6 @@
+__pycache__/
+annotations/*
+logs/*
+.DS_Store
+notebooks/*
+app_add_own_document_type.py

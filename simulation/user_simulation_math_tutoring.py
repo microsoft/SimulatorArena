@@ -63,6 +63,10 @@ def cli_parser():
                         help="Random seed (default: 2).")
     parser.add_argument("--user_model", type=str, default="gpt-4o",
                         help="User model (default gpt-4o).")
+    parser.add_argument("--benchmarking", action="store_true",
+                        help="Enable benchmarking mode (default: False).")
+    parser.add_argument("--allowed_models", type=str, default="",
+                        help="Comma-separated list of models to benchmark (e.g., 'gpt-5,claude-sonnet-4-20250514').")
     return parser
 
 #########################
@@ -193,6 +197,8 @@ async def main(args):
     refinement_message_style = args.refinement_message_style
     annotation_id          = args.annotation_id
     user_model             = args.user_model
+    benchmarking           = args.benchmarking
+    allowed_models_str     = args.allowed_models
 
     if refinement:
         assert refinement_message_style, "Refinement message style must be provided if refinement is enabled."
@@ -209,6 +215,9 @@ async def main(args):
         refinement=refinement, refinement_message_style=refinement_message_style,
         refinement_version=refinement_version
     )
+    # Add benchmarking suffix if benchmarking mode is enabled
+    if benchmarking:
+        file_name += "_benchmarking"
     print(f"Output filename: {file_name}")
 
     #########################
@@ -222,9 +231,9 @@ async def main(args):
             prompt_initial_query_template = f.read()
 
     # Load user profiles and related data if user_profile is enabled or for refinement
-    writing_profile_path = f"../data/user_profiles/math_tutoring/writing_style.json"
-    interaction_profile_path = f"../data/user_profiles/math_tutoring/interaction_style.json"
-    knowledge_state_profile_path = f"../data/user_profiles/math_tutoring/knowledge_state.json"
+    writing_profile_path = f"../data/user_simulator_profiles/math_tutoring/writing_style.json"
+    interaction_profile_path = f"../data/user_simulator_profiles/math_tutoring/interaction_style.json"
+    knowledge_state_profile_path = f"../data/user_simulator_profiles/math_tutoring/knowledge_state.json"
     with open(writing_profile_path, 'r') as f:
         extracted_writing_style_user_profile_dict = json.load(f)
     with open(interaction_profile_path, 'r') as f:
@@ -393,41 +402,83 @@ async def main(args):
     # Build model-problem dictionary
     #########################
 
-    allowed_models = ["gpt-4o-mini", "gpt-4o", "llama-3-1-70b", 
-                      "llama-3-1-8b", "phi-3-small", "gpt-4-turbo", 
-                      "mistral-large-latest", "claude-3-5-sonnet-20240620", "phi-3-medium"]
-
+    if benchmarking:
+        # In benchmarking mode, use user-specified models
+        if not allowed_models_str:
+            raise ValueError("--allowed_models must be specified when --benchmarking is enabled")
+        allowed_models = [model.strip() for model in allowed_models_str.split(",")]
+        print(f"Benchmarking mode enabled with models: {allowed_models}")
+    else:
+        # Default allowed models when not benchmarking
+        allowed_models = ["gpt-4o-mini", "gpt-4o", "llama-3-1-70b", 
+                          "llama-3-1-8b", "phi-3-small", "gpt-4-turbo", 
+                          "mistral-large-latest", "claude-3-5-sonnet-20240620", "phi-3-medium"]
 
     model_problem_dict = {}
 
-    model_count = {}
+    if benchmarking:
+        # In benchmarking mode, run all specified models for each annotation
+        for i, ann in enumerate(annotations):
+            for model_name in allowed_models:
+                # Skip if this annotation already exists in the output for this model
+                if existing_output:
+                    try:
+                        _ = existing_output[model_name][str(ann["problem_id"])][ann["workerId"]]
+                        continue
+                    except KeyError:
+                        pass
+                
+                if model_name not in model_problem_dict:
+                    model_problem_dict[model_name] = {
+                        "problem": [],
+                        "problem_id": [],
+                        "saved_key": [],
+                        "why_ask_tutor": [],
+                        "user_profile": [],
+                        "user_initial_understanding_profile": [],
+                        "user_query_style_profile": [],
+                        "length_control": [],
+                    }
+                
+                model_problem_dict[model_name]["problem"].append(ann["question"])
+                saved_key = ann["workerId"]
+                model_problem_dict[model_name]["saved_key"].append(saved_key)
+                model_problem_dict[model_name]["problem_id"].append(str(ann["problem_id"]))
+                model_problem_dict[model_name]["why_ask_tutor"].append(ann.get("why_ask_tutor", ""))
+                if user_profile:
+                    model_problem_dict[model_name]["user_profile"].append(user_profile_list[i])
+                if refinement:
+                    model_problem_dict[model_name]["user_query_style_profile"].append(user_query_style_profiles[i])
+                if length_control:
+                    model_problem_dict[model_name]["length_control"].append(length_control_list[i])
+    else:
+        # Non-benchmarking mode: use model from annotation
+        for i, ann in enumerate(annotations):
+            if ann["model"] not in allowed_models:
+                continue
 
-    for i, ann in enumerate(annotations):
-        if ann["model"] not in allowed_models:
-            continue
-
-        if ann["model"] not in model_problem_dict:
-            model_problem_dict[ann["model"]] = {
-                "problem": [],
-                "problem_id": [],
-                "saved_key": [],
-                "why_ask_tutor": [],
-                "user_profile": [],
-                "user_initial_understanding_profile": [],
-                "user_query_style_profile": [],
-                "length_control": [],
-            }
-        model_problem_dict[ann["model"]]["problem"].append(ann["question"])
-        saved_key = ann["workerId"]
-        model_problem_dict[ann["model"]]["saved_key"].append(saved_key)
-        model_problem_dict[ann["model"]]["problem_id"].append(str(ann["problem_id"]))
-        model_problem_dict[ann["model"]]["why_ask_tutor"].append(ann["why_ask_tutor"])
-        if user_profile:
-            model_problem_dict[ann["model"]]["user_profile"].append(user_profile_list[i])
-        if refinement:
-            model_problem_dict[ann["model"]]["user_query_style_profile"].append(user_query_style_profiles[i])
-        if length_control:
-            model_problem_dict[ann["model"]]["length_control"].append(length_control_list[i])
+            if ann["model"] not in model_problem_dict:
+                model_problem_dict[ann["model"]] = {
+                    "problem": [],
+                    "problem_id": [],
+                    "saved_key": [],
+                    "why_ask_tutor": [],
+                    "user_profile": [],
+                    "user_initial_understanding_profile": [],
+                    "user_query_style_profile": [],
+                    "length_control": [],
+                }
+            model_problem_dict[ann["model"]]["problem"].append(ann["question"])
+            saved_key = ann["workerId"]
+            model_problem_dict[ann["model"]]["saved_key"].append(saved_key)
+            model_problem_dict[ann["model"]]["problem_id"].append(str(ann["problem_id"]))
+            model_problem_dict[ann["model"]]["why_ask_tutor"].append(ann["why_ask_tutor"])
+            if user_profile:
+                model_problem_dict[ann["model"]]["user_profile"].append(user_profile_list[i])
+            if refinement:
+                model_problem_dict[ann["model"]]["user_query_style_profile"].append(user_query_style_profiles[i])
+            if length_control:
+                model_problem_dict[ann["model"]]["length_control"].append(length_control_list[i])
 
 
     #########################

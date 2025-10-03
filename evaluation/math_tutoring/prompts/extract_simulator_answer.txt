@@ -1,0 +1,21 @@
+You are a math expert. Your task is to extract the student's final answer from a given conversation about a math problem. The conversation include the interaction between the student and a tutor. Your goal is to identify and extract only the student's final answer to the math problem being discussed.
+
+<Math Problem>
+{problem}
+</Math Problem>
+
+<Conversation>
+{conversation}
+</Conversation>
+
+# Output format:
+First, provide a brief reasoning process explaining how you identified the student's final answer, and then output the extracted final answer verbatim, as follows:
+
+## Reasoning Process: [brief reasoning]
+## Extracted Student's Answer: [extracted answer verbatim]
+
+# Notes:
+1. If the student provides multiple answers or revises their answer, select the last answer they present or confirm.
+2. If the student does not explicitly state a final answer, look for confirmation or repetition of the answer in the tutor's response.
+3. If no clear final answer is provided or the student's statements remain ambiguous, output **"No clear final answer given"** as the extracted answer.
+4. Do not solve or evaluate the math problem yourself; simply extract the answer from the conversation.

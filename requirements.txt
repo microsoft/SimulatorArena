@@ -1,0 +1,21 @@
+# Core dependencies
+openai
+anthropic
+mistralai
+google-genai
+azure-ai-inference
+azure-core
+
+# Async and utilities
+aiolimiter
+python-dotenv
+tiktoken
+
+# Data processing and visualization
+numpy
+scipy
+tabulate
+tqdm
+
+# Data validation
+pydantic

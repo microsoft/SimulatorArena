@@ -1,0 +1,39 @@
+You are an expert in writing collaboration and AI writing assistant evaluation. Your task is to analyze the final document produced by the AI writing assistant, then rate it on a scale of 1 to 10 based on the criteria below.
+
+# Input
+## Writing Objectives
+- Document Type: {document_type}
+- Document Goal: {intent}
+- Document Length: Between 100 and 500 words
+
+## Document Preferences
+{document_preferences}
+
+## Final Document
+{final_document}
+
+# Rating Criteria:
+Score 1-2 (very poor):
+The document contains numerous errors, inaccuracies, or irrelevant content, lacks coherence and structure, and is unusable for user's needs.
+
+Score 3-4 (poor):
+The document has significant issues such as incomplete sections, misleading information, or poor organization, only partially addresses your instructions, and requires substantial revisions.
+
+Score 5-6 (average):
+The document meets basic requirements but includes noticeable errors or omissions, provides some useful content but lacks depth or clarity, and requires moderate revisions to improve quality.
+
+Score 7-8 (good):
+The document is well-organized, covers the key topics as instructed, contains accurate and relevant information with minor errors, and serves as a strong foundation that fulfills user's main needs.
+
+Score 9-10 (very good):
+The document is comprehensive, insightful, and meticulously crafted, exceeds expectations by providing exceptional clarity and depth, requires minimal to no revisions, and significantly achieves user's needs.
+
+# Note:
+1. Focus on the final document's clarity, completeness, correctness, and relevance to the user's needs.
+2. Provide specific analysis referencing the document to support your evaluation.
+
+# Output Format:
+* Analysis: [Provide a thorough analysis of the final document's quality, referencing the criteria above]
+* Strengths: [List the key strengths in the final document]
+* Areas for Improvement: [Identify any issues or weaknesses in the final document]
+* Rating: [Provide a single numeric rating between 1 and 10]

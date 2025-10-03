@@ -3,10 +3,11 @@
 import asyncio
 import logging
 import os
-from typing import Any, Union, List, Dict
+from typing import Any, Union, List, Dict, Optional
 
 import json
 import re
+import gc
 
 import aiolimiter
 
@@ -27,26 +28,20 @@ from azure.core.credentials import AzureKeyCredential
 
 import copy
 
+# vLLM imports
+try:
+    import torch
+    from transformers import AutoTokenizer
+    from vllm import LLM, SamplingParams
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+    LLM = None  # Type hint placeholder
+
 from dotenv import load_dotenv
 dotenv_path = os.path.expanduser('~/.env')
 load_dotenv(dotenv_path)
 os.environ['CURL_CA_BUNDLE'] = ''
-
-anthropic_client = anthropic.Anthropic()
-
-mistral_client = Mistral(api_key=os.environ.get("MISTRAL_API_KEY"))
-
-llama_3_1_70b_client = ChatCompletionsClient(endpoint=os.environ.get("AZURE_LLAMA_3_1_70B_INSTRUCT_ENDPOINT"),
-                                             credential=AzureKeyCredential(os.environ.get("AZURE_LLAMA_3_1_70B_INSTRUCT_KEY")))
-
-llama_3_1_8b_client = ChatCompletionsClient(endpoint=os.environ.get("AZURE_LLAMA_3_1_8B_INSTRUCT_ENDPOINT"),
-                                            credential=AzureKeyCredential(os.environ.get("AZURE_LLAMA_3_1_8B_INSTRUCT_KEY")))
-
-phi_3_medium_client = ChatCompletionsClient(endpoint=os.environ.get("AZURE_PHI3_MEDIUM_128K_INSTRUCT_ENDPOINT"),
-                                            credential=AzureKeyCredential(os.environ.get("AZURE_PHI3_MEDIUM_128K_INSTRUCT_KEY")))
-
-phi_3_small_client = ChatCompletionsClient(endpoint=os.environ.get("AZURE_PHI3_SMALL_128K_INSTRUCT_ENDPOINT"),
-                                             credential=AzureKeyCredential(os.environ.get("AZURE_PHI3_SMALL_128K_INSTRUCT_KEY")))
 
 why_ask_tutor_dict = {
         "L1": "I'm completely lost and don't understand the problem",
@@ -72,6 +67,67 @@ enc = tiktoken.encoding_for_model("gpt-4o")
 
 import os
 import json
+
+# vLLM helper functions
+def initialize_vllm_model(
+    model_name: str,
+    max_model_len: Optional[int] = None,
+    gpu_memory_utilization: float = 0.8,
+    tensor_parallel_size: Optional[int] = None,
+    dtype: str = "bfloat16",
+    trust_remote_code: bool = True,
+) -> Optional[LLM]:
+    """Initialize a vLLM model for local inference.
+    
+    Args:
+        model_name: HuggingFace model identifier or local path
+        max_model_len: Maximum model context length
+        gpu_memory_utilization: Fraction of GPU memory to use
+        tensor_parallel_size: Number of GPUs for tensor parallelism
+        dtype: Data type for model weights
+        trust_remote_code: Whether to trust remote code from HuggingFace
+        
+    Returns:
+        LLM instance or None if vLLM is not available
+    """
+    if not VLLM_AVAILABLE:
+        raise RuntimeError("vLLM is not installed. Please install it with: pip install vllm")
+    
+    if tensor_parallel_size is None:
+        tensor_parallel_size = torch.cuda.device_count() or 1
+    
+    return LLM(
+        model=model_name,
+        tensor_parallel_size=tensor_parallel_size,
+        dtype=dtype,
+        gpu_memory_utilization=gpu_memory_utilization,
+        max_model_len=max_model_len,
+        trust_remote_code=trust_remote_code,
+        download_dir=os.environ.get("HF_HOME"),
+    )
+
+def cleanup_vllm_model(llm: LLM) -> None:
+    """Clean up vLLM model and free GPU memory.
+    
+    Args:
+        llm: vLLM model instance to clean up
+    """
+    if llm is None:
+        return
+        
+    try:
+        # Try different cleanup methods based on vLLM version
+        if hasattr(llm, 'llm_engine') and hasattr(llm.llm_engine, 'engine_core'):
+            llm.llm_engine.engine_core.shutdown()
+        elif hasattr(llm, 'llm_engine') and hasattr(llm.llm_engine, 'model_executor'):
+            del llm.llm_engine.model_executor
+    except Exception as e:
+        logging.warning(f"Could not fully cleanup vLLM: {e}")
+    
+    del llm
+    gc.collect()
+    if VLLM_AVAILABLE and torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 # truncate messages
 def truncate_message(message, max_tokens=200):
@@ -152,29 +208,32 @@ async def _throttled_openai_chat_completion_acreate(
     n: int,
     json_mode: bool,
     limiter: aiolimiter.AsyncLimiter,
+    reasoning_effort: str = None,
 ) -> dict[str, Any]:
     async with limiter:
         for _ in range(20):
             try:
+                # GPT-5 models require temperature to be 1
+                if model.startswith("gpt-5"):
+                    temperature = 1.0
+                
+                # Build base parameters
+                params = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_completion_tokens": max_tokens,  # Always use max_completion_tokens for OpenAI models
+                    "top_p": top_p,
+                    "n": n,
+                }
+                
+                # Add optional parameters
                 if json_mode:
-                    return await client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        top_p=top_p,
-                        n=n,
-                        response_format={"type": "json_object"},
-                    )
-                else:
-                    return await client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        top_p=top_p,
-                        n=n,
-                    )
+                    params["response_format"] = {"type": "json_object"}
+                if reasoning_effort is not None:
+                    params["reasoning_effort"] = reasoning_effort
+                    
+                return await client.chat.completions.create(**params)
             except Exception as e:
                 if isinstance(e, openai.UnprocessableEntityError):
                     logging.warning(ERROR_ERRORS_TO_MESSAGES[type(e)])
@@ -234,12 +293,24 @@ async def generate_from_openai_chat_completion(
     client = AsyncOpenAI(
         api_key = os.environ.get("OPENAI_API_KEY"),
     )
+    
+    # Determine reasoning_effort for GPT-5 models
+    reasoning_effort = None
+    actual_model = model_name
+    if model_name == "gpt-5":
+        reasoning_effort = "minimal"
+        actual_model = "gpt-5-2025-08-07"
+        temperature = 1.0  # GPT-5 requires temperature to be 1
+    elif model_name == "gpt-5-thinking":
+        reasoning_effort = "medium"
+        actual_model = "gpt-5-2025-08-07"
+        temperature = 1.0  # GPT-5 requires temperature to be 1
 
     limiter = aiolimiter.AsyncLimiter(requests_per_minute)
     async_responses = [
         _throttled_openai_chat_completion_acreate(
             client=client,
-            model=model_name,
+            model=actual_model,
             messages=full_context,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -247,6 +318,7 @@ async def generate_from_openai_chat_completion(
             n=n,
             json_mode=json_mode,
             limiter=limiter,
+            reasoning_effort=reasoning_effort,
         )
         for full_context in full_contexts
     ]
@@ -289,20 +361,34 @@ async def generate_from_azure_openai_chat_completion(
         api_key = os.environ.get("OPENAI_API_KEY"),
     )
 
+    # Determine reasoning_effort for GPT-5 models BEFORE modifying model_name
+    reasoning_effort = None
+    if model_name == "gpt-5":
+        reasoning_effort = "minimal"
+        temperature = 1.0  # GPT-5 requires temperature to be 1
+    elif model_name == "gpt-5-thinking":
+        reasoning_effort = "medium"
+        temperature = 1.0  # GPT-5 requires temperature to be 1
+    
+    # Map model names to actual API model names
     if model_name == "gpt-4o":
         model_name = "gpt-4o-2024-05-13"
     elif model_name == "gpt-4o-241120":
         model_name = "gpt-4o-2024-11-20"
+    elif model_name in ["gpt-5", "gpt-5-thinking"]:
+        model_name = "gpt-5-2025-08-07"  # Use the actual GPT-5 model name
 
     limiter = aiolimiter.AsyncLimiter(requests_per_minute, time_period=60)
     semaphore = asyncio.Semaphore(max_concurrent)
+    
+    actual_model = model_name
 
     async def limited_task(context):
         # Only allow max_concurrent tasks to run concurrently.
         async with semaphore:
             return await _throttled_openai_chat_completion_acreate(
                 client=client,
-                model=model_name,
+                model=actual_model,
                 messages=context,
                 temperature=temperature if temperature is not None else 0,
                 max_tokens=max_tokens,
@@ -310,6 +396,7 @@ async def generate_from_azure_openai_chat_completion(
                 n=n,
                 json_mode=json_mode,
                 limiter=limiter,
+                reasoning_effort=reasoning_effort,
             )
 
     # Create a task for each context.
@@ -413,7 +500,7 @@ async def generate_from_mistral_chat_completion(
         List of generated responses in OpenAI-like format.
     """
     client = Mistral(
-        api_key=os.environ.get("MISTRAL_API_KEY"),
+        api_key=os.environ.get("MISTRAL_KEY"),
     )
 
     # Create both per-minute and per-second limiters
@@ -467,6 +554,8 @@ async def _throttled_anthropic_chat_completion_acreate(
     top_p: float,
     n: int,
     limiter: aiolimiter.AsyncLimiter,
+    thinking_enabled: bool = False,
+    thinking_budget: int = 10000,
 ) -> Dict[str, Any]:
     """Throttled async chat completion for Anthropic API with error handling and retries."""
 
@@ -491,41 +580,62 @@ async def _throttled_anthropic_chat_completion_acreate(
                 responses = []
                 # Anthropic doesn't support 'n' directly, so we make multiple calls
                 for _ in range(n):
+                    # Use temperature 1.0 for thinking models
+                    adjusted_temperature = temperature
+                    if thinking_enabled:
+                        adjusted_temperature = 1.0
+                    
+                    # Build common parameters
+                    params = {
+                        "model": model,
+                        "extra_headers": {
+                            "anthropic-beta": "prompt-caching-2024-07-31"
+                        },
+                        "max_tokens": max_tokens,
+                        "temperature": adjusted_temperature if adjusted_temperature is not None else 0,
+                    }
+                    
+                    # Claude 4 models don't support both temperature and top_p
+                    # Only add top_p for older models
+                    if model not in ["claude-sonnet-4-20250514", "claude-opus-4-1-20250805", "claude-opus-4-20250514"]:
+                        params["top_p"] = top_p if top_p is not None else 1.0
+                    
+                    # Add thinking parameter if enabled
+                    if thinking_enabled:
+                        params["thinking"] = {
+                            "type": "enabled",
+                            "budget_tokens": thinking_budget
+                        }
+                    
                     if messages_copy[0]["role"] == "system":
                         response = await client.messages.create(
-                            model=model,
-                            extra_headers={
-                                "anthropic-beta": "prompt-caching-2024-07-31"
-                            },
                             messages=messages_copy[1:],  # Exclude system message from messages
                             system=system_prompt_cached,
-                            max_tokens=max_tokens,
-                            temperature=temperature if temperature is not None else 0,
-                            top_p=top_p if top_p is not None else 1.0,
+                            **params
                         )
                     else:
                         response = await client.messages.create(
-                            model=model,
-                            extra_headers={
-                                "anthropic-beta": "prompt-caching-2024-07-31"
-                            },
                             messages=messages_copy,
-                            max_tokens=max_tokens,
-                            temperature=temperature if temperature is not None else 0,
-                            top_p=top_p if top_p is not None else 1.0,
+                            **params
                         )
                     responses.append(response)
                 
-                # Format response to match OpenAI-like structure for consistency
-                return {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": resp.content[0].text
-                            }
+                # Extract text content from responses, handling thinking blocks
+                formatted_responses = []
+                for resp in responses:
+                    # Extract only text content blocks
+                    text_content = ""
+                    for block in resp.content:
+                        if hasattr(block, 'text'):  # Text block
+                            text_content += block.text
+                    formatted_responses.append({
+                        "message": {
+                            "content": text_content
                         }
-                        for resp in responses
-                    ]
+                    })
+                
+                return {
+                    "choices": formatted_responses
                 }
 
             except tuple(ANTHROPIC_ERROR_MESSAGES.keys()) as e:
@@ -594,24 +704,31 @@ async def generate_from_anthropic_chat_completion(
         List of generated responses in OpenAI-like format.
     """
     client = AsyncAnthropic(
-        api_key=os.environ.get("ANTHROPIC_API_KEY"),
+        api_key=os.environ.get("ANTHROPIC_KEY"),
     )
 
     limiter = aiolimiter.AsyncLimiter(requests_per_minute)
     semaphore = asyncio.Semaphore(max_concurrent)
+
+    # Check if thinking mode is enabled
+    thinking_enabled = model_name.endswith("-thinking")
+    actual_model = model_name[:-9] if thinking_enabled else model_name
+    thinking_budget = 50000 if thinking_enabled else None
 
     async def limited_task(context):
         # Only allow max_concurrent tasks to run concurrently.
         async with semaphore:
             return await _throttled_anthropic_chat_completion_acreate(
                 client=client,
-                model=model_name,
+                model=actual_model,
                 messages=context,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 top_p=top_p,
                 n=n,
                 limiter=limiter,
+                thinking_enabled=thinking_enabled,
+                thinking_budget=thinking_budget,
             )
 
     # Create a task for each context.
@@ -721,8 +838,8 @@ async def generate_from_azure_chat_completion(
 
     limiter = aiolimiter.AsyncLimiter(requests_per_minute)
 
-    endpoint = os.environ.get("AZURE_SLLM_ENDPOINT")
-    key = os.environ.get("AZURE_SLLM_KEY")
+    endpoint = os.environ.get("AZURE_ENDPOINT")
+    key = os.environ.get("AZURE_KEY")
 
     if model == "llama-3-1-70b":
         deployment = "Meta-Llama-3.1-70B-Instruct"
@@ -778,18 +895,30 @@ async def _throttled_gemini_generate_content_acreate(
     n: int,
     system_prompt: str,
     limiter: aiolimiter.AsyncLimiter,
+    thinking_enabled: bool = False,
+    thinking_budget: int = None,
 ) -> Dict[str, Any]:
     """Throttled async content generation for Gemini API with error handling and retries."""
     
+    # Adjust temperature for thinking models
+    if thinking_enabled:
+        temperature = 1.0
+    
     # Create the generation config
-    generate_content_config = types.GenerateContentConfig(
-        temperature=temperature if temperature is not None else 0,
-        top_p=top_p if top_p is not None else 1.0,
-        max_output_tokens=max_tokens,
-        response_mime_type="text/plain",
-        candidate_count=n,
-        system_instruction=system_prompt if system_prompt else None,
-    )
+    config_params = {
+        "temperature": temperature if temperature is not None else 0,
+        "top_p": top_p if top_p is not None else 1.0,
+        "max_output_tokens": max_tokens,
+        "response_mime_type": "text/plain",
+        "candidate_count": n,
+        "system_instruction": system_prompt if system_prompt else None,
+    }
+    
+    # Add thinking config if enabled
+    if thinking_enabled and thinking_budget is not None:
+        config_params["thinking_config"] = {"thinking_budget": thinking_budget}
+    
+    generate_content_config = types.GenerateContentConfig(**config_params)
     
     async with limiter:
         for attempt in range(20):  # Retry logic
@@ -801,16 +930,25 @@ async def _throttled_gemini_generate_content_acreate(
                 )
                 
                 # Format response to match OpenAI-like structure for consistency
-                return {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": candidate.content.parts[0].text
-                            }
+                choices = []
+                for candidate in response.candidates:
+                    # Filter out thought summaries if present
+                    text_parts = []
+                    for part in candidate.content.parts:
+                        # Only include non-thought text parts
+                        if not getattr(part, 'thought', False):
+                            text_parts.append(part.text)
+                    
+                    # Join all non-thought text parts
+                    content = ''.join(text_parts) if text_parts else candidate.content.parts[0].text
+                    
+                    choices.append({
+                        "message": {
+                            "content": content
                         }
-                        for candidate in response.candidates
-                    ]
-                }
+                    })
+                
+                return {"choices": choices}
                 
             except errors.APIError as e:
                 # Handle different error types based on error code
@@ -904,11 +1042,16 @@ async def generate_from_gemini_api(
         List of generated responses in OpenAI-like format.
     """
     client = genai.Client(
-        api_key=os.environ.get("GEMINI_API_KEY"),
+        api_key=os.environ.get("GEMINI_KEY"),
     )
 
     limiter = aiolimiter.AsyncLimiter(requests_per_minute)
     semaphore = asyncio.Semaphore(max_concurrent)
+    
+    # Check if thinking mode is enabled
+    thinking_enabled = model_name.endswith("-thinking")
+    actual_model = model_name[:-9] if thinking_enabled else model_name
+    thinking_budget = -1 if thinking_enabled else None  # -1 for dynamic thinking budget
 
     async def limited_task(messages):
         # Process OpenAI-style messages to Gemini format
@@ -945,7 +1088,7 @@ async def generate_from_gemini_api(
         async with semaphore:
             return await _throttled_gemini_generate_content_acreate(
                 client=client,
-                model=model_name,
+                model=actual_model,
                 contents=contents,
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -953,6 +1096,8 @@ async def generate_from_gemini_api(
                 n=n,
                 system_prompt=system_prompt,
                 limiter=limiter,
+                thinking_enabled=thinking_enabled,
+                thinking_budget=thinking_budget,
             )
 
     # Create a task for each context
@@ -1006,6 +1151,119 @@ def extract_nested_json(text):
         except json.JSONDecodeError:
             return None 
 
+async def generate_from_vllm_local(
+    full_contexts: List[List[Dict[str, str]]],
+    model_name: str,
+    vllm_model: LLM,
+    temperature: float = 0.7,
+    max_tokens: int = 1024,
+    top_p: float = 1.0,
+    n: int = 1,
+    show_progress: bool = True,
+) -> List[Dict[str, Any]]:
+    """Generate from local vLLM model.
+    
+    Args:
+        full_contexts: List of message lists to generate from.
+        model_name: Model name (for tokenizer loading).
+        vllm_model: Pre-loaded vLLM model instance.
+        temperature: Temperature for generation (0-1).
+        max_tokens: Maximum number of tokens to generate.
+        top_p: Top p sampling parameter.
+        n: Number of responses to generate for each API call.
+        show_progress: Whether to show progress bar.
+        
+    Returns:
+        List of generated responses in OpenAI-like format.
+    """
+    if not VLLM_AVAILABLE:
+        raise RuntimeError("vLLM is not installed. Please install it with: pip install vllm")
+    
+    if vllm_model is None:
+        raise ValueError("vLLM model instance is required but was None")
+    
+    # Load tokenizer (lightweight, fast to load)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    except Exception as e:
+        logging.error(f"Failed to load tokenizer for {model_name}: {e}")
+        raise
+    
+    # Convert message contexts to prompts using chat template
+    prompts = []
+    for context in full_contexts:
+        try:
+            prompt = tokenizer.apply_chat_template(
+                context,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            prompts.append(prompt)
+        except Exception as e:
+            logging.warning(f"Failed to apply chat template: {e}. Using fallback formatting.")
+            # Fallback: simple concatenation
+            prompt = ""
+            for msg in context:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                prompt += f"{role}: {content}\n"
+            prompts.append(prompt)
+    
+    # Create sampling parameters
+    sampling_params = SamplingParams(
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+        n=n,
+        skip_special_tokens=True,  # Usually want to skip special tokens in output
+    )
+    
+    # Run synchronous vLLM generation in executor to maintain async interface
+    loop = asyncio.get_event_loop()
+    
+    try:
+        if show_progress:
+            # For progress bar, we might want to show it differently
+            # since vLLM processes all prompts at once
+            print(f"Processing {len(prompts)} prompts with vLLM...")
+        
+        outputs = await loop.run_in_executor(
+            None,
+            vllm_model.generate,
+            prompts,
+            sampling_params
+        )
+        
+        if show_progress:
+            print(f"Completed {len(prompts)} prompts")
+    except Exception as e:
+        logging.error(f"vLLM generation failed: {e}")
+        # Return empty responses on failure
+        return [{"choices": [{"message": {"content": ""}} for _ in range(n)]} for _ in prompts]
+    
+    # Format outputs to match OpenAI-like structure
+    responses = []
+    for output in outputs:
+        choices = []
+        for i in range(n):
+            if i < len(output.outputs):
+                text = output.outputs[i].text
+            else:
+                text = ""
+            
+            # Clean up the text
+            try:
+                text = text.strip()
+            except:
+                text = ""
+            
+            choices.append({
+                "message": {"content": text}
+            })
+        responses.append({"choices": choices})
+    
+    return responses
+
 async def generate_responses_in_batch(
     full_contexts: List[List[Dict[str, str]]],
     model_name: str,
@@ -1013,9 +1271,38 @@ async def generate_responses_in_batch(
     max_tokens: int,
     n: int = 1,
     show_progress: bool = True,
+    vllm_model: Optional[LLM] = None,  # New parameter for pre-loaded vLLM model
 ) -> Union[List[str], List[List[str]]]:
-
-    if model_name in ["claude-3-5-sonnet-20240620", "claude-3-7-sonnet-20250219"]:
+    
+    # Check if vLLM model is provided for local inference
+    if vllm_model is not None:
+        # Use local vLLM generation
+        responses = await generate_from_vllm_local(
+            full_contexts, model_name, vllm_model,
+            temperature=temperature, max_tokens=max_tokens,
+            n=n, show_progress=show_progress
+        )
+        # Process responses (same format as other models)
+        generated_responses = []
+        for resp in responses:
+            scenario_responses = []
+            for i in range(n):
+                choice = resp.get('choices', [])
+                if i < len(choice):
+                    content = choice[i].get('message', {}).get('content', "")
+                else:
+                    content = ""
+                try:
+                    content = content.strip()
+                except:
+                    content = ""
+                scenario_responses.append(content)
+            generated_responses.append(scenario_responses)
+    
+    elif model_name in ["claude-3-5-sonnet-20240620", "claude-3-7-sonnet-20250219", 
+                       "claude-sonnet-4-20250514", "claude-sonnet-4-20250514-thinking",
+                       "claude-opus-4-1-20250805", "claude-opus-4-1-20250805-thinking",
+                       "claude-3-7-sonnet-20250219-thinking"]:
         # Anthropic-like responses (dictionary-based)
         responses = await generate_from_anthropic_chat_completion(
             full_contexts, model_name, temperature=temperature, max_tokens=max_tokens, n=n, show_progress=show_progress
@@ -1037,7 +1324,8 @@ async def generate_responses_in_batch(
                 scenario_responses.append(content)
             generated_responses.append(scenario_responses)
 
-    elif model_name in ["gpt-4o", "gpt-4-turbo", "gpt-4o-mini", "gpt-4o-241120", "gpt-4.1-2025-04-14"]:
+    elif model_name in ["gpt-4o", "gpt-4-turbo", "gpt-4o-mini", "gpt-4o-241120", "gpt-4.1-2025-04-14",
+                         "gpt-5", "gpt-5-thinking"]:
         # GPT-like responses (object-based)
         responses = await generate_from_azure_openai_chat_completion(
             "",
@@ -1098,7 +1386,8 @@ async def generate_responses_in_batch(
                     content = ""
                 scenario_responses.append(content)
             generated_responses.append(scenario_responses)
-    elif model_name in ["gemini-2.5-pro-exp-03-25", "gemini-2.0-flash", "gemini-2.5-flash-preview-04-17"]:
+    elif model_name in ["gemini-2.5-pro-exp-03-25", "gemini-2.0-flash",
+                         "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]:
         # Gemini-like responses (dictionary-based)
         responses = await generate_from_gemini_api(
             full_contexts, model_name, temperature=temperature, max_tokens=max_tokens, n=n, show_progress=show_progress
@@ -1145,7 +1434,19 @@ async def simulate_conversation_in_batch_math_tutoring(
     refinement: bool = False,
     refinement_version: str = "v1",
     user_query_style_profiles: List[str] = [],
+    vllm_models: Optional[Dict[str, LLM]] = None,  # Pre-loaded vLLM models
 ):  
+    # Helper function to get the appropriate vLLM model
+    def get_vllm_model(model_name: str) -> Optional[LLM]:
+        if vllm_models is None:
+            return None
+        if model_name in vllm_models:
+            return vllm_models[model_name]
+        # If a generic model is provided, use it for any model
+        if "default" in vllm_models:
+            return vllm_models["default"]
+        return None
+    
     with open(f"../prompts/refinement_{refinement_version}.txt", "r") as f:
         refinement_prompt_template = f.read()
 
@@ -1215,7 +1516,8 @@ async def simulate_conversation_in_batch_math_tutoring(
 
         if refinement:
             original_user_queries = await generate_responses_in_batch(
-                user_full_contexts, user_model_name, user_temperature, max_tokens, show_progress=show_progress)
+                user_full_contexts, user_model_name, user_temperature, max_tokens, 
+                show_progress=show_progress, vllm_model=get_vllm_model(user_model_name))
             
             refinement_active_conversations = []
             refinement_messages_batch = []
@@ -1267,12 +1569,14 @@ async def simulate_conversation_in_batch_math_tutoring(
                 user_model_name,
                 user_temperature,
                 max_tokens,
-                show_progress=show_progress
+                show_progress=show_progress,
+                vllm_model=get_vllm_model(user_model_name)
             )
         else:
             # Generate user queries in batch using the combined helper function
             user_queries = await generate_responses_in_batch(
-                user_full_contexts, user_model_name, user_temperature, max_tokens, show_progress=show_progress)
+                user_full_contexts, user_model_name, user_temperature, max_tokens, 
+                show_progress=show_progress, vllm_model=get_vllm_model(user_model_name))
 
         # Update conversations with user queries
         for data, user_query in zip(active_conversations, user_queries):
@@ -1320,7 +1624,8 @@ async def simulate_conversation_in_batch_math_tutoring(
 
         # Generate assistant responses in batch using the combined helper function
         assistant_responses = await generate_responses_in_batch(
-            assistant_full_contexts, assistant_model_name, assistant_temperature, max_tokens, show_progress=show_progress)
+            assistant_full_contexts, assistant_model_name, assistant_temperature, max_tokens, 
+            show_progress=show_progress, vllm_model=get_vllm_model(assistant_model_name))
 
         # Update conversations with assistant responses
         for data, assistant_response in zip(active_conversations, assistant_responses):
@@ -1362,7 +1667,17 @@ async def simulate_conversation_with_user_profile_in_batch_math_tutoring(
     n: int = 1,
     show_progress: bool = True,
     focus_feature_texts: List[str] = [],
+    vllm_models: Optional[Dict[str, LLM]] = None,  # Pre-loaded vLLM models
 ):  
+    # Helper function to get the appropriate vLLM model
+    def get_vllm_model(model_name: str) -> Optional[LLM]:
+        if vllm_models is None:
+            return None
+        if model_name in vllm_models:
+            return vllm_models[model_name]
+        if "default" in vllm_models:
+            return vllm_models["default"]
+        return None
 
     # load refinement prompt template
     with open(f"../prompts/refinement_{refinement_version}.txt", "r") as f:
@@ -1442,7 +1757,8 @@ async def simulate_conversation_with_user_profile_in_batch_math_tutoring(
         
         if refinement:
             original_user_queries = await generate_responses_in_batch(
-                user_full_contexts, user_model_name, user_temperature, max_tokens, show_progress=show_progress)
+                user_full_contexts, user_model_name, user_temperature, max_tokens, 
+                show_progress=show_progress, vllm_model=get_vllm_model(user_model_name))
             
             refinement_active_conversations = []
             refinement_messages_batch = []
@@ -1494,12 +1810,14 @@ async def simulate_conversation_with_user_profile_in_batch_math_tutoring(
                 user_model_name,
                 user_temperature,
                 max_tokens,
-                show_progress=show_progress
+                show_progress=show_progress,
+                vllm_model=get_vllm_model(user_model_name)
             )
         else:
             # Generate user queries in batch using the combined helper function
             user_queries = await generate_responses_in_batch(
-                user_full_contexts, user_model_name, user_temperature, max_tokens, show_progress=show_progress)
+                user_full_contexts, user_model_name, user_temperature, max_tokens, 
+                show_progress=show_progress, vllm_model=get_vllm_model(user_model_name))
 
         # Update conversations with user queries
         for data, user_query in zip(active_conversations, user_queries):
@@ -1547,7 +1865,8 @@ async def simulate_conversation_with_user_profile_in_batch_math_tutoring(
 
         # Generate assistant responses in batch using the combined helper function
         assistant_responses = await generate_responses_in_batch(
-            assistant_full_contexts, assistant_model_name, assistant_temperature, max_tokens, show_progress=show_progress)
+            assistant_full_contexts, assistant_model_name, assistant_temperature, max_tokens, 
+            show_progress=show_progress, vllm_model=get_vllm_model(assistant_model_name))
 
         # Update conversations with assistant responses
         for data, assistant_response in zip(active_conversations, assistant_responses):
@@ -1646,7 +1965,8 @@ async def simulate_conversation_with_user_profile_in_batch_math_tutoring(
             user_model_name,
             user_temperature,
             max_tokens,
-            show_progress=show_progress
+            show_progress=show_progress,
+            vllm_model=get_vllm_model(user_model_name)
         )
 
         # Update conversations with user queries
@@ -1697,7 +2017,8 @@ async def simulate_conversation_with_user_profile_in_batch_math_tutoring(
             assistant_model_name,
             assistant_temperature,
             max_tokens,
-            show_progress=show_progress
+            show_progress=show_progress,
+            vllm_model=get_vllm_model(assistant_model_name)
         )
 
         # Update conversations with assistant responses
@@ -1738,7 +2059,18 @@ async def simulate_conversation_in_batch_document_creation(
     refinement: bool = False,
     refinement_version: str = "v1",
     user_query_style_profiles: List[str] = [],
+    vllm_models: Optional[Dict[str, LLM]] = None,  # Pre-loaded vLLM models
 ):  
+    # Helper function to get the appropriate vLLM model
+    def get_vllm_model(model_name: str) -> Optional[LLM]:
+        if vllm_models is None:
+            return None
+        if model_name in vllm_models:
+            return vllm_models[model_name]
+        if "default" in vllm_models:
+            return vllm_models["default"]
+        return None
+    
     with open(f"../prompts/refinement_{refinement_version}.txt", "r") as f:
         refinement_prompt_template = f.read()
 
@@ -1812,7 +2144,8 @@ async def simulate_conversation_in_batch_document_creation(
 
         if refinement:
             original_user_queries = await generate_responses_in_batch(
-                user_full_contexts, user_model_name, user_temperature, max_tokens, show_progress=show_progress)
+                user_full_contexts, user_model_name, user_temperature, max_tokens, 
+                show_progress=show_progress, vllm_model=get_vllm_model(user_model_name))
             
             refinement_active_conversations = []
             refinement_messages_batch = []
@@ -1860,12 +2193,14 @@ async def simulate_conversation_in_batch_document_creation(
                 user_model_name,
                 user_temperature,
                 max_tokens,
-                show_progress=show_progress
+                show_progress=show_progress,
+                vllm_model=get_vllm_model(user_model_name)
             )
         else:
             # Generate user queries in batch using the combined helper function
             user_queries = await generate_responses_in_batch(
-                user_full_contexts, user_model_name, user_temperature, max_tokens, show_progress=show_progress)
+                user_full_contexts, user_model_name, user_temperature, max_tokens, 
+                show_progress=show_progress, vllm_model=get_vllm_model(user_model_name))
 
         # Update conversations with user queries
         for data, user_query in zip(active_conversations, user_queries):
@@ -1906,7 +2241,8 @@ async def simulate_conversation_in_batch_document_creation(
 
         # Generate assistant responses in batch using the combined helper function
         assistant_responses = await generate_responses_in_batch(
-            assistant_full_contexts, assistant_model_name, assistant_temperature, max_tokens, show_progress=show_progress)
+            assistant_full_contexts, assistant_model_name, assistant_temperature, max_tokens, 
+            show_progress=show_progress, vllm_model=get_vllm_model(assistant_model_name))
 
         # Update conversations with assistant responses
         for data, assistant_response in zip(active_conversations, assistant_responses):
@@ -1947,7 +2283,17 @@ async def simulate_conversation_with_user_profile_in_batch_document_creation(
     n: int = 1,
     show_progress: bool = True,
     focus_feature_texts: List[str] = [],
+    vllm_models: Optional[Dict[str, LLM]] = None,  # Pre-loaded vLLM models
 ):  
+    # Helper function to get the appropriate vLLM model
+    def get_vllm_model(model_name: str) -> Optional[LLM]:
+        if vllm_models is None:
+            return None
+        if model_name in vllm_models:
+            return vllm_models[model_name]
+        if "default" in vllm_models:
+            return vllm_models["default"]
+        return None
 
     # load refinement prompt template
     with open(f"../prompts/refinement_{refinement_version}.txt", "r") as f:
@@ -2043,7 +2389,8 @@ async def simulate_conversation_with_user_profile_in_batch_document_creation(
 
         if refinement:
             original_user_queries = await generate_responses_in_batch(
-                user_full_contexts, user_model_name, user_temperature, max_tokens, show_progress=show_progress)
+                user_full_contexts, user_model_name, user_temperature, max_tokens, 
+                show_progress=show_progress, vllm_model=get_vllm_model(user_model_name))
             
             refinement_active_conversations = []
             refinement_messages_batch = []
@@ -2091,12 +2438,14 @@ async def simulate_conversation_with_user_profile_in_batch_document_creation(
                 user_model_name,
                 user_temperature,
                 max_tokens,
-                show_progress=show_progress
+                show_progress=show_progress,
+                vllm_model=get_vllm_model(user_model_name)
             )
         else:
             # Generate user queries in batch using the combined helper function
             user_queries = await generate_responses_in_batch(
-                user_full_contexts, user_model_name, user_temperature, max_tokens, show_progress=show_progress)
+                user_full_contexts, user_model_name, user_temperature, max_tokens, 
+                show_progress=show_progress, vllm_model=get_vllm_model(user_model_name))
 
         # Update conversations with user queries
         for data, user_query in zip(active_conversations, user_queries):
@@ -2132,7 +2481,8 @@ async def simulate_conversation_with_user_profile_in_batch_document_creation(
 
         # Generate assistant responses in batch using the combined helper function
         assistant_responses = await generate_responses_in_batch(
-            assistant_full_contexts, assistant_model_name, assistant_temperature, max_tokens, show_progress=show_progress)
+            assistant_full_contexts, assistant_model_name, assistant_temperature, max_tokens, 
+            show_progress=show_progress, vllm_model=get_vllm_model(assistant_model_name))
 
         # Update conversations with assistant responses
         for data, assistant_response in zip(active_conversations, assistant_responses):

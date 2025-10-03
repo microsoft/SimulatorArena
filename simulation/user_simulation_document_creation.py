@@ -167,6 +167,8 @@ async def main(args):
     refinement_message_style = args.refinement_message_style
     user_model            = args.user_model
     refinement_version = args.refinement_version
+    benchmarking           = args.benchmarking
+    allowed_models_str     = args.allowed_models
 
     # Determine whether to use user profiles based on version and provided flag
     if "user-profile" in version and user_profile_version != "":
@@ -179,13 +181,13 @@ async def main(args):
         background_dict = json.load(f)
 
     # Load user profile and preference data (used if user_profile_version or refinement_message_style is set)
-    with open(f"../data/user_profiles/document_creation/interaction_style.json", "r") as f:
+    with open(f"../data/user_simulator_profiles/document_creation/interaction_style.json", "r") as f:
         extracted_interaction_style_user_profile_dict = json.load(f)
 
-    with open(f"../data/user_profiles/document_creation/writing_style.json", "r") as f:
+    with open(f"../data/user_simulator_profiles/document_creation/writing_style.json", "r") as f:
         extracted_writing_style_user_profile_dict = json.load(f)
 
-    with open(f"../data/user_profiles/document_creation/preferences.json", "r") as f:
+    with open(f"../data/user_simulator_profiles/document_creation/preferences.json", "r") as f:
         extracted_preferences_dict = json.load(f)
 
     # Load prompt templates
@@ -204,6 +206,9 @@ async def main(args):
         refinement_message_style=refinement_message_style,
         refinement_version=refinement_version,
     )
+    # Add benchmarking suffix if benchmarking mode is enabled
+    if benchmarking:
+        file_name += "_benchmarking"
     print(f"Output filename: {file_name}")
 
     # Load annotations
@@ -319,40 +324,85 @@ async def main(args):
     
 
     # Build a dictionary mapping models to their corresponding simulation inputs
-    allowed_models = ["gpt-4o-mini", "gpt-4o",
-                      "mistral-large-2407", "claude-3-5-sonnet-20240620", 
-                      "llama-3-1-70b", "llama-3-1-8b", "phi-3-small", "gpt-4-turbo", "phi-3-medium"]
-
+    if benchmarking:
+        # In benchmarking mode, use user-specified models
+        if not allowed_models_str:
+            raise ValueError("--allowed_models must be specified when --benchmarking is enabled")
+        allowed_models = [model.strip() for model in allowed_models_str.split(",")]
+        print(f"Benchmarking mode enabled with models: {allowed_models}")
+    else:
+        # Default allowed models when not benchmarking
+        allowed_models = ["gpt-4o-mini", "gpt-4o",
+                          "mistral-large-2407", "claude-3-5-sonnet-20240620", 
+                          "llama-3-1-70b", "llama-3-1-8b", "phi-3-small", "gpt-4-turbo", "phi-3-medium"]
 
     model_document_dict = {}
 
-    for i, annotation in enumerate(annotations):
-        if annotation["model"] not in allowed_models:
-            continue
+    if benchmarking:
+        # In benchmarking mode, run all specified models for each annotation
+        for i, annotation in enumerate(annotations):
+            for model_name in allowed_models:
+                # Skip if this annotation already exists in the output for this model
+                if existing_output:
+                    try:
+                        _ = existing_output[model_name][document_type_dict[annotation["document_type"]]][annotation["intent"]][annotation["workerId"]]
+                        continue
+                    except KeyError:
+                        pass
+                
+                if model_name not in model_document_dict:
+                    model_document_dict[model_name] = {
+                        "document_type": [],
+                        "intent": [],
+                        "workerId": [],
+                        "background": [],
+                        "user_profile": [],
+                        "user_initial_understanding_profile": [],
+                        "user_query_style_profile": [],
+                        "length_control": [],
+                    }
+                
+                doc_type = document_type_dict[annotation["document_type"]]
+                model_document_dict[model_name]["document_type"].append(doc_type)
+                model_document_dict[model_name]["intent"].append(annotation["intent"])
+                model_document_dict[model_name]["workerId"].append(annotation["workerId"])
+                model_document_dict[model_name]["background"].append(background_list[i])
 
-        if annotation["model"] not in model_document_dict:
-            model_document_dict[annotation["model"]] = {
-                "document_type": [],
-                "intent": [],
-                "workerId": [],
-                "background": [],
-                "user_profile": [],
-                "user_initial_understanding_profile": [],
-                "user_query_style_profile": [],
-                "length_control": [],
-            }
-        doc_type = document_type_dict[annotation["document_type"]]
-        model_document_dict[annotation["model"]]["document_type"].append(doc_type)
-        model_document_dict[annotation["model"]]["intent"].append(annotation["intent"])
-        model_document_dict[annotation["model"]]["workerId"].append(annotation["workerId"])
-        model_document_dict[annotation["model"]]["background"].append(background_list[i])
+                if length_control:
+                    model_document_dict[model_name]["length_control"].append(length_control_list[i])
+                if use_user_profile:
+                    model_document_dict[model_name]["user_profile"].append(user_profile_list[i])
+                if refinement:
+                    model_document_dict[model_name]["user_query_style_profile"].append(user_query_style_profiles[i])
+    else:
+        # Non-benchmarking mode: use model from annotation
+        for i, annotation in enumerate(annotations):
+            if annotation["model"] not in allowed_models:
+                continue
 
-        if length_control:
-            model_document_dict[annotation["model"]]["length_control"].append(length_control_list[i])
-        if use_user_profile:
-            model_document_dict[annotation["model"]]["user_profile"].append(user_profile_list[i])
-        if refinement:
-            model_document_dict[annotation["model"]]["user_query_style_profile"].append(user_query_style_profiles[i])
+            if annotation["model"] not in model_document_dict:
+                model_document_dict[annotation["model"]] = {
+                    "document_type": [],
+                    "intent": [],
+                    "workerId": [],
+                    "background": [],
+                    "user_profile": [],
+                    "user_initial_understanding_profile": [],
+                    "user_query_style_profile": [],
+                    "length_control": [],
+                }
+            doc_type = document_type_dict[annotation["document_type"]]
+            model_document_dict[annotation["model"]]["document_type"].append(doc_type)
+            model_document_dict[annotation["model"]]["intent"].append(annotation["intent"])
+            model_document_dict[annotation["model"]]["workerId"].append(annotation["workerId"])
+            model_document_dict[annotation["model"]]["background"].append(background_list[i])
+
+            if length_control:
+                model_document_dict[annotation["model"]]["length_control"].append(length_control_list[i])
+            if use_user_profile:
+                model_document_dict[annotation["model"]]["user_profile"].append(user_profile_list[i])
+            if refinement:
+                model_document_dict[annotation["model"]]["user_query_style_profile"].append(user_query_style_profiles[i])
 
 
     # Run the simulation asynchronously across models
@@ -405,6 +455,10 @@ def cli_parser():
                         help="Refinement message style (default: "").")
     parser.add_argument("--user_model", type=str, default="gpt-4o",
                         help="User model (default gpt-4o).")
+    parser.add_argument("--benchmarking", action="store_true",
+                        help="Enable benchmarking mode (default: False).")
+    parser.add_argument("--allowed_models", type=str, default="",
+                        help="Comma-separated list of models to benchmark (e.g., 'gpt-5,claude-sonnet-4-20250514').")
     return parser
 
 if __name__ == "__main__":

@@ -1,0 +1,34 @@
+You are a document state tracker. Your task is to monitor and update the document state based on changes discussed in the latest conversation turn.
+
+# Inputs:
+<Current Document>
+{document}
+</Current Document>
+
+<User Query>
+{user_query}
+</User Query>
+
+<Model Response>
+{model_response}
+</Model Response>
+
+# Rules:
+1. Carefully review both user query and model's response to see identify explicit document changes
+2. When user asks to create a different/new document, discard current document completely and replace with the new document content.
+3. Apply only changes that are clearly stated in the model's response
+4. Keep all unmodified sections exactly as they were
+5. If no clear changes are found, output "SAME" for the document
+6. DO NOT include content that doesn't belong to the document such as: 
+- User queries or questions
+- Conversation elements (like "Let me help you with that" or "Let me know if you have further questions")
+- Model's explanations or commentary
+
+# Note: 
+1. output "SAME" if the document isn't being updated.
+
+# You must output in the following JSON format:
+{{
+    "Thought": "Detailed analysis of 1. whether the user ask to create a new document, 2. explicit changes made, or 3. why no changes were needed",
+    "Updated Document": "SAME" or "{{Updated Document Content}}"
+}}

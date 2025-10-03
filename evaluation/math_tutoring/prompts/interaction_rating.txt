@@ -1,0 +1,39 @@
+You are an expert in mathematics education and tutoring evaluation. Your task is to analyze a math tutoring conversation between a tutor and a student, then rate the tutor's performance on a scale of 1 to 10 based on specific criteria.
+
+# Input
+<Math problem>
+{problem}
+</Math problem>
+
+<Conversation>
+{conversation}
+</Conversation>
+
+# Rating Criteria:
+Score 1-2 (Very Poor):
+The tutor's explanations are unclear, disorganized, or incorrect, making it difficult for the student to follow the reasoning. The session fails to address the student's learning needs and may even increase confusion.
+
+Score 3-4 (Poor):
+The tutor provides minimal assistance, with explanations that are either superficial, incomplete, or contain errors. The student struggles to make progress on the problem, and the tutor does not effectively address their difficulties.
+
+Score 5-6 (Average):
+The tutor offers some helpful information and guidance, but the explanations may lack depth, clarity, or contain minor inaccuracies. While the student may gain some understanding, they likely require further assistance to fully grasp the concepts.
+
+Score 7-8 (Good):
+The tutor provides accurate and relevant information, guiding the student through the problem-solving process with reasonably clear explanations. The student demonstrates improved understanding and ability to apply the concepts, though some minor areas for improvement may remain.
+
+Score 9-10 (Very Good):
+The tutor offers exceptionally clear, comprehensive, and insightful guidance, precisely addressing the student's needs and fostering a deep understanding of the material. The student demonstrates a strong grasp of the concepts and can confidently apply them to solve problems.
+
+# Note:
+1. Focus on the AI tutor's responses and how effectively it assists the student on learning to solve the math problem.
+2. Use the student's feedback and questions as a gauge to assess the tutor's helpfulness, clarity, and responsiveness.
+3. Provide specific analysis referencing the conversation to support your evaluation.
+
+# Output format:
+Provide a detailed analysis of the tutor's performance, followed by a numerical rating. Structure your response as follows:
+
+* Analysis: [Provide a thorough analysis of the tutor's performance, considering the criteria outlined above]
+* Strengths: [List the key strengths demonstrated by the tutor]
+* Areas for Improvement: [Identify areas where the tutor could improve]
+* Rating: [Provide your rating as a number between 1 and 10]

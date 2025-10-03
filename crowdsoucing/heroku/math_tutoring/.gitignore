@@ -1,0 +1,4 @@
+__pycache__/
+annotations/*
+logs/*
+.DS_Store

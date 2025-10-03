@@ -1,0 +1,10 @@
+openai
+gradio==5.9.1
+pandas
+datasets
+huggingface_hub
+promptflow
+msal
+anthropic
+mistralai
+azure-ai-inference

@@ -1,0 +1,38 @@
+You are an expert in writing collaboration and AI writing assistant evaluation. Your task is to analyze a conversation between a user and an AI writing assistant about creating a document, then rate the AI writing assistant's performance on a scale of 1 to 10 based on the criteria below.
+
+# Input
+<Conversation>
+{conversation}
+</Conversation>
+
+# Rating Criteria:
+Score 1 ~ 2 (Very Poor):
+The AI writing assistant consistently failed to understand the user's inputs, provided irrelevant or nonsensical responses, and made the interaction frustrating and unproductive.
+
+Score 3 ~ 4 (Poor):
+The AI writing assistant frequently misunderstood the user's requests, offered minimal assistance that didn't address the user's needs, and required repeated clarifications.
+
+Score 5 ~ 6 (Average):
+The AI writing assistant was somewhat helpful but had noticeable issues with comprehension or responsiveness, providing partially relevant responses that contained errors or omissions.
+
+Score 7 ~ 9 (Good):
+- The AI assistant generally understood the user's needs and provided relevant, helpful responses.
+- There may be some issues with clarity, completeness, or minor mistakes, but overall it meets the user's primary objectives for document creation.
+  - 7: Helpful but has at least one moderate shortcoming (e.g., missing details, partial confusion).
+  - 8: Addresses the user's needs effectively with only a few minor or sporadic errors.
+  - 9: Near-excellent, with negligible gaps; it exceeds the user's expectations in most ways but still has a small area for improvement.
+
+Score 10 (Very Good):
+- The AI writing assistant's performance is excellent, with effectively no significant flaws.
+- The user is highly satisfied with clarity, depth, and relevance throughout the conversation.
+
+# Note:
+1. Focus on the AI writing assistant's responses and how effectively it assists the user with document creation.
+2. Use the user's feedback and questions as a gauge to assess the assistant's helpfulness, clarity, and responsiveness.
+3. Provide specific analysis referencing the conversation to support your evaluation.
+
+# Output Format:
+* Analysis: [Provide a thorough analysis of the AI writing assistant's performance, considering the criteria above]
+* Strengths: [List the key strengths demonstrated by the AI writing assistant in the conversation]
+* Areas for Improvement: [Identify any issues or weaknesses in the assistant's performance]
+* Rating: [Provide a single numeric rating between 1 and 10]

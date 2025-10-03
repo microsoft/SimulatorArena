@@ -1,0 +1,20 @@
+You are a document finalizer. Your task is to extract the final version of a document from a conversation between a user and an AI writing assistant.
+
+# Input:
+<Conversation>
+{conversation}
+</Conversation>
+
+# Instructions:
+1. Carefully read the entire conversation to identify every modification made to the document.
+2. Combine all the modifications in the order they were made to determine the final version of the document.
+3. Output only the final document content. Do not include any user queries, model responses, or any conversational commentary.
+4. If no document content exists or the final document is empty, output an empty string for the document content.
+
+# You must output in the following JSON format:
+```json
+{{
+    "Thought": "Provide an analysis explaining whether a document was created and, if so, describe the document creation process throughout the conversation.",
+    "Final Document": "Final document content, use empty string if the document is empty."
+}}
+```
