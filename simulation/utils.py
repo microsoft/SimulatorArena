@@ -212,11 +212,7 @@ async def _throttled_openai_chat_completion_acreate(
 ) -> dict[str, Any]:
     async with limiter:
         for _ in range(20):
-            try:
-                # GPT-5 models require temperature to be 1
-                if model.startswith("gpt-5"):
-                    temperature = 1.0
-                
+            try:                
                 # Build base parameters
                 params = {
                     "model": model,
@@ -264,73 +260,8 @@ async def _throttled_openai_chat_completion_acreate(
                 await asyncio.sleep(10)
         return {"choices": [{"message": {"content": ""}} for _ in range(n)]}
 
+
 async def generate_from_openai_chat_completion(
-    full_contexts: list,
-    model_name: str,
-    temperature: float,
-    max_tokens: int,
-    top_p: float = 1.0,
-    n: int = 1,
-    json_mode: bool = False,
-    requests_per_minute: int = 200,
-    show_progress: bool = True,
-) -> list[list[str]]:
-    """Generate from OpenAI Chat Completion API.
-
-    Args:
-        full_contexts: List of full contexts to generate from.
-        model_name: Model name.
-        temperature: Temperature to use.
-        max_tokens: Maximum number of tokens to generate.
-        n: Number of responses to generate for each API call.
-        top_p: Top p to use.
-        requests_per_minute: Number of requests per minute to allow.
-
-    Returns:
-        List of generated responses.
-    """
-
-    client = AsyncOpenAI(
-        api_key = os.environ.get("OPENAI_API_KEY"),
-    )
-    
-    # Determine reasoning_effort for GPT-5 models
-    reasoning_effort = None
-    actual_model = model_name
-    if model_name == "gpt-5":
-        reasoning_effort = "minimal"
-        actual_model = "gpt-5-2025-08-07"
-        temperature = 1.0  # GPT-5 requires temperature to be 1
-    elif model_name == "gpt-5-thinking":
-        reasoning_effort = "medium"
-        actual_model = "gpt-5-2025-08-07"
-        temperature = 1.0  # GPT-5 requires temperature to be 1
-
-    limiter = aiolimiter.AsyncLimiter(requests_per_minute)
-    async_responses = [
-        _throttled_openai_chat_completion_acreate(
-            client=client,
-            model=actual_model,
-            messages=full_context,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            top_p=top_p,
-            n=n,
-            json_mode=json_mode,
-            limiter=limiter,
-            reasoning_effort=reasoning_effort,
-        )
-        for full_context in full_contexts
-    ]
-
-    if show_progress:
-        responses = await tqdm_asyncio.gather(*async_responses)
-    else:
-        responses = await asyncio.gather(*async_responses)
-    return responses
-
-async def generate_from_azure_openai_chat_completion(
-    azure_resource_name: str,
     full_contexts: list,
     model_name: str,
     temperature: float,
@@ -363,10 +294,10 @@ async def generate_from_azure_openai_chat_completion(
 
     # Determine reasoning_effort for GPT-5 models BEFORE modifying model_name
     reasoning_effort = None
-    if model_name == "gpt-5":
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano"]:
         reasoning_effort = "minimal"
         temperature = 1.0  # GPT-5 requires temperature to be 1
-    elif model_name == "gpt-5-thinking":
+    elif model_name in ["gpt-5-thinking", "gpt-5-mini-thinking", "gpt-5-nano-thinking"]:
         reasoning_effort = "medium"
         temperature = 1.0  # GPT-5 requires temperature to be 1
     
@@ -377,6 +308,10 @@ async def generate_from_azure_openai_chat_completion(
         model_name = "gpt-4o-2024-11-20"
     elif model_name in ["gpt-5", "gpt-5-thinking"]:
         model_name = "gpt-5-2025-08-07"  # Use the actual GPT-5 model name
+    elif model_name in ["gpt-5-mini", "gpt-5-mini-thinking"]:
+        model_name = "gpt-5-mini-2025-08-07"  # Use the actual GPT-5 model name
+    elif model_name in ["gpt-5-nano", "gpt-5-nano-thinking"]:
+        model_name = "gpt-5-nano-2025-08-07"  # Use the actual GPT-5 model name
 
     limiter = aiolimiter.AsyncLimiter(requests_per_minute, time_period=60)
     semaphore = asyncio.Semaphore(max_concurrent)
@@ -1325,10 +1260,9 @@ async def generate_responses_in_batch(
             generated_responses.append(scenario_responses)
 
     elif model_name in ["gpt-4o", "gpt-4-turbo", "gpt-4o-mini", "gpt-4o-241120", "gpt-4.1-2025-04-14",
-                         "gpt-5", "gpt-5-thinking"]:
+                         "gpt-5", "gpt-5-thinking", "gpt-5-mini", "gpt-5-mini-thinking", "gpt-5-nano", "gpt-5-nano-thinking"]:
         # GPT-like responses (object-based)
-        responses = await generate_from_azure_openai_chat_completion(
-            "",
+        responses = await generate_from_openai_chat_completion(
             full_contexts, model_name, temperature=temperature, max_tokens=max_tokens, n=n, show_progress=show_progress
         )
         generated_responses = []
@@ -1447,7 +1381,7 @@ async def simulate_conversation_in_batch_math_tutoring(
             return vllm_models["default"]
         return None
     
-    with open(f"../prompts/refinement_{refinement_version}.txt", "r") as f:
+    with open(f"prompts/refinement_{refinement_version}.txt", "r") as f:
         refinement_prompt_template = f.read()
 
     conversations_data = []
@@ -1680,7 +1614,7 @@ async def simulate_conversation_with_user_profile_in_batch_math_tutoring(
         return None
 
     # load refinement prompt template
-    with open(f"../prompts/refinement_{refinement_version}.txt", "r") as f:
+    with open(f"prompts/refinement_{refinement_version}.txt", "r") as f:
         refinement_prompt_template = f.read()
 
     conversations_data = []
@@ -2071,7 +2005,7 @@ async def simulate_conversation_in_batch_document_creation(
             return vllm_models["default"]
         return None
     
-    with open(f"../prompts/refinement_{refinement_version}.txt", "r") as f:
+    with open(f"prompts/refinement_{refinement_version}.txt", "r") as f:
         refinement_prompt_template = f.read()
 
     conversations_data = []
@@ -2296,7 +2230,7 @@ async def simulate_conversation_with_user_profile_in_batch_document_creation(
         return None
 
     # load refinement prompt template
-    with open(f"../prompts/refinement_{refinement_version}.txt", "r") as f:
+    with open(f"prompts/refinement_{refinement_version}.txt", "r") as f:
         refinement_prompt_template = f.read()
 
 

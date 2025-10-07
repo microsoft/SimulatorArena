@@ -76,7 +76,7 @@ def load_user_preferences(annotation_id: str = "document_creation_annotations") 
 
 def load_user_background(annotation_id: str = "document_creation_annotations") -> Dict:
     """Load user background information."""
-    background_path = Path(__file__).parent.parent.parent.parent / "data" / "document_creation_user_background.json"
+    background_path = Path(__file__).parent.parent.parent.parent / "data" / "document_creation_user_simulator_background.json"
     
     if not background_path.exists():
         print(f"Warning: Background file not found: {background_path}")
@@ -191,22 +191,30 @@ def main():
     )
     parser.add_argument(
         "--terminate_help",
-        type=str2bool,
+        nargs='?',
+        const=True,
         default=True,
+        type=lambda x: str(x).lower() in ('true', '1', 'yes'),
         help="Use terminated conversation endpoints if available (default: True)"
     )
     parser.add_argument(
         "--evaluator_model",
         type=str,
-        default="gpt-4o-2024-11-20",
-        help="Model to use for evaluation (default: gpt-4o-2024-11-20)"
+        default="gpt-5-mini",
+        help="Model to use for evaluation (default: gpt-5-mini)"
     )
     parser.add_argument(
         "--gold_human",
         action="store_true",
         help="Evaluate human conversations instead of simulated ones"
     )
-    
+    parser.add_argument(
+        "--max_tokens",
+        type=int,
+        default=5000,
+        help="Maximum tokens for rating response (default: 5000)"
+    )
+
     args = parser.parse_args()
     
     print(f"Generating {args.aspect} rating prompts for: {args.file_name}")
@@ -312,8 +320,8 @@ def main():
                 "body": {
                     "model": args.evaluator_model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.0,
-                    "max_tokens": 1000
+                    "temperature": 1.0,
+                    "max_completion_tokens": args.max_tokens
                 }
             })
             keys.append((model_name, doc_type, intent, worker_id))
@@ -402,8 +410,8 @@ def main():
                             "body": {
                                 "model": args.evaluator_model,
                                 "messages": [{"role": "user", "content": prompt}],
-                                "temperature": 0.0,
-                                "max_tokens": 1000
+                                "temperature": 1.0,
+                                "max_completion_tokens": args.max_tokens
                             }
                         })
                         keys.append((model_name, doc_type, intent, worker_id))
@@ -415,7 +423,10 @@ def main():
     batch_dir.mkdir(parents=True, exist_ok=True)
     
     batch_file = batch_dir / f"{args.file_name}.jsonl"
-    
+
+    # Ensure parent directory exists (handles subdirectories in file_name like "gpt-5-mini/...")
+    batch_file.parent.mkdir(parents=True, exist_ok=True)
+
     with open(batch_file, 'w') as f:
         for prompt in batch_prompts:
             f.write(json.dumps(prompt) + '\n')
@@ -424,6 +435,7 @@ def main():
     
     # Save keys for later mapping
     keys_file = batch_dir / f"{args.file_name}_keys.json"
+    keys_file.parent.mkdir(parents=True, exist_ok=True)
     with open(keys_file, 'w') as f:
         json.dump({"keys": [list(k) for k in keys]}, f, indent=2)
     

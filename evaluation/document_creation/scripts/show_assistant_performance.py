@@ -354,10 +354,14 @@ def main():
                 "avg_turns": avg_turns,
                 "n_conversations": n
             })
-        
-        with open(args.export, 'w') as f:
+
+        # Ensure parent directory exists
+        export_path = Path(args.export)
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(export_path, 'w') as f:
             json.dump(export_data, f, indent=2)
-        print(f"\nResults exported to: {args.export}")
+        print(f"\nResults exported to: {export_path}")
 
 if __name__ == "__main__":
     main()

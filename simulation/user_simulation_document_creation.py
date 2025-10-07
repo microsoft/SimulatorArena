@@ -177,7 +177,7 @@ async def main(args):
         use_user_profile = False
 
     # Load background data
-    with open(f"../data/document_creation_user_background.json", "r") as f:
+    with open(f"../data/document_creation_user_simulator_background.json", "r") as f:
         background_dict = json.load(f)
 
     # Load user profile and preference data (used if user_profile_version or refinement_message_style is set)
@@ -208,13 +208,22 @@ async def main(args):
     )
     # Add benchmarking suffix if benchmarking mode is enabled
     if benchmarking:
-        file_name += "_benchmarking"
+        file_name += "_for_benchmarking"
     print(f"Output filename: {file_name}")
 
-    # Load annotations
-    with open(f"../data/{annotation_id}.json", "r") as f:
+    # Load annotations - use benchmarking annotations if in benchmarking mode
+    if benchmarking:
+        annotation_path = f"../data/{annotation_id}_for_benchmarking.json"
+    else:
+        annotation_path = f"../data/{annotation_id}.json"
+    with open(annotation_path, "r") as f:
         annotations = json.load(f)
-    print(f"Total annotations loaded: {len(annotations)}")
+    print(f"Total annotations loaded: {len(annotations)} from {annotation_path}")
+
+    # Limit number of conversations if specified
+    if args.num_conversations > 0:
+        annotations = annotations[:args.num_conversations]
+        print(f"Limited to {len(annotations)} conversations based on --num_conversations argument.")
 
     # Filter out annotations that have already been simulated
     existing_output = {}
@@ -223,10 +232,8 @@ async def main(args):
         "email": "Email/Letter",
         "creative writing": "Creative Writing",
     }
-    if user_model == "gpt-4o":
-        output_dir = f"output/{annotation_id}"
-    else:
-        output_dir = f"output/{annotation_id}/{user_model}"
+
+    output_dir = f"output/{annotation_id}/{user_model}"
 
     if os.path.exists(f"{output_dir}/{file_name}.json"):
         with open(f"{output_dir}/{file_name}.json", "r") as f:
@@ -324,21 +331,14 @@ async def main(args):
     
 
     # Build a dictionary mapping models to their corresponding simulation inputs
+    model_document_dict = {}
+
     if benchmarking:
         # In benchmarking mode, use user-specified models
         if not allowed_models_str:
             raise ValueError("--allowed_models must be specified when --benchmarking is enabled")
         allowed_models = [model.strip() for model in allowed_models_str.split(",")]
         print(f"Benchmarking mode enabled with models: {allowed_models}")
-    else:
-        # Default allowed models when not benchmarking
-        allowed_models = ["gpt-4o-mini", "gpt-4o",
-                          "mistral-large-2407", "claude-3-5-sonnet-20240620", 
-                          "llama-3-1-70b", "llama-3-1-8b", "phi-3-small", "gpt-4-turbo", "phi-3-medium"]
-
-    model_document_dict = {}
-
-    if benchmarking:
         # In benchmarking mode, run all specified models for each annotation
         for i, annotation in enumerate(annotations):
             for model_name in allowed_models:
@@ -377,9 +377,6 @@ async def main(args):
     else:
         # Non-benchmarking mode: use model from annotation
         for i, annotation in enumerate(annotations):
-            if annotation["model"] not in allowed_models:
-                continue
-
             if annotation["model"] not in model_document_dict:
                 model_document_dict[annotation["model"]] = {
                     "document_type": [],
@@ -453,12 +450,14 @@ def cli_parser():
                         help="Refinement version (default: v1).")
     parser.add_argument("--refinement_message_style", type=str, default="",
                         help="Refinement message style (default: "").")
-    parser.add_argument("--user_model", type=str, default="gpt-4o",
-                        help="User model (default gpt-4o).")
+    parser.add_argument("--user_model", type=str, default="gpt-5-mini",
+                        help="User model (default gpt-5-mini).")
     parser.add_argument("--benchmarking", action="store_true",
                         help="Enable benchmarking mode (default: False).")
     parser.add_argument("--allowed_models", type=str, default="",
                         help="Comma-separated list of models to benchmark (e.g., 'gpt-5,claude-sonnet-4-20250514').")
+    parser.add_argument("--num_conversations", type=int, default=-1,
+                        help="Number of conversations to simulate. Use -1 for all conversations (default: -1).")
     return parser
 
 if __name__ == "__main__":

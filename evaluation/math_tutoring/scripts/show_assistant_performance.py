@@ -29,11 +29,11 @@ def load_data(
     """
     
     # Load answer correctness data from SimulatorArena evaluation outputs
-    correctness_path = Path(__file__).parent.parent / "evaluation_outputs" / "extracted_answer" / f"{file_name}.json"
+    correctness_path = Path(__file__).parent.parent / "evaluation_outputs" / "extracted_answer" / f"{file_name}_correctness.json"
     if not correctness_path.exists():
         print(f"Error: Cannot find answer correctness file at {correctness_path}")
         sys.exit(1)
-    
+
     with open(correctness_path, 'r') as f:
         answer_correctness_data = json.load(f)
         # Handle new format with "answers" wrapper
@@ -103,11 +103,15 @@ def calculate_model_statistics(
                             pass
                 
                 # Get answer correctness
-                if (model in answer_correctness_data and 
-                    problem_id in answer_correctness_data[model] and 
+                if (model in answer_correctness_data and
+                    problem_id in answer_correctness_data[model] and
                     user_key in answer_correctness_data[model][problem_id]):
-                    
-                    correctness = answer_correctness_data[model][problem_id][user_key].get("correctness", "incorrect")
+
+                    answer_data = answer_correctness_data[model][problem_id][user_key]
+                    # Try new field name first, fallback to old
+                    correctness = answer_data.get("correctness", answer_data.get("extracted_answer", "incorrect"))
+                    # Normalize to lowercase for comparison
+                    correctness = correctness.lower() if isinstance(correctness, str) else "incorrect"
                     answer_correctness.append(correctness)
         
         # Calculate averages
@@ -213,8 +217,8 @@ def main():
     parser.add_argument(
         "--annotation_id",
         type=str,
-        default="good_annotations_50_benchmarking",
-        help="Annotation ID for the evaluation data"
+        default="math_tutoring_annotations",
+        help="Annotation ID for the evaluation data (default: math_tutoring_annotations)"
     )
     parser.add_argument(
         "--file_name",
@@ -241,7 +245,12 @@ def main():
         type=int,
         help="Show only top N models"
     )
-    
+    parser.add_argument(
+        "--export",
+        type=str,
+        help="Export results to JSON file"
+    )
+
     args = parser.parse_args()
     
     # Load data
@@ -279,6 +288,32 @@ def main():
     
     # Display results
     display_results(model_stats, args.sort_by, args.output_format)
+
+    # Export if requested
+    if args.export:
+        export_data = {
+            "file_name": args.file_name,
+            "annotation_id": args.annotation_id,
+            "sort_by": args.sort_by,
+            "models": []
+        }
+
+        for model, avg_turns, avg_rating, correctness, n in model_stats:
+            export_data["models"].append({
+                "model": model,
+                "avg_turns": round(avg_turns, 2),
+                "avg_rating": round(avg_rating, 2),
+                "correctness_percentage": round(correctness, 2),
+                "sample_count": n
+            })
+
+        # Ensure parent directory exists
+        export_path = Path(args.export)
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(export_path, 'w') as f:
+            json.dump(export_data, f, indent=2)
+        print(f"\nResults exported to: {export_path}")
 
 if __name__ == "__main__":
     main()

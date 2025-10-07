@@ -10,14 +10,16 @@ This directory contains the annotated human–AI dialogue datasets for Simulator
 - **Status**: ✅ Complete and ready to use
 
 ### Math Tutoring Task
-- **Redacted File**: `math_tutoring_annotations_redacted.json`
-- **Full File**: `math_tutoring_annotations.json` (must be generated)
-- **Content**: 450 conversations with math problems of varying difficulty
+- **Redacted Files**:
+  - `math_tutoring_annotations_redacted.json` (450 conversations - full dataset)
+  - `math_tutoring_annotations_redacted_for_benchmarking.json` (50 conversations - benchmarking subset)
+- **Full Files**: `math_tutoring_annotations.json` and `math_tutoring_annotations_for_benchmarking.json` (must be generated)
+- **Content**: Conversations with math problems of varying difficulty
 - **Status**: ⚠️ Requires MATH dataset to restore full content
 
 ## 🔒 Important: MATH Dataset Copyright Notice
 
-Due to copyright restrictions, we cannot directly distribute the MATH dataset problems and solutions. The `math_tutoring_annotations_redacted.json` file contains all conversation data **except** the actual math problems and solutions, which have been replaced with references to their locations in the MATH dataset.
+Due to copyright restrictions, we cannot directly distribute the MATH dataset problems and solutions. The redacted annotation files contain all conversation data **except** the actual math problems and solutions, which have been replaced with references to their locations in the MATH dataset.
 
 ## 🚀 How to Restore Math Tutoring Data
 
@@ -46,11 +48,20 @@ SimulatorArena/data/
 
 ### Step 2: Run the Restoration Script
 
-Once the MATH dataset is in place, simply run:
+Once the MATH dataset is in place, you have two options:
 
+**Option A: Restore both files (recommended)**
 ```bash
-cd SimulatorArena/data
-python load_math_data.py
+python load_math_data.py --all
+```
+
+This will restore:
+- `math_tutoring_annotations_redacted.json` → `math_tutoring_annotations.json` (450 conversations)
+- `math_tutoring_annotations_redacted_for_benchmarking.json` → `math_tutoring_annotations_for_benchmarking.json` (50 conversations)
+
+**Option B: Restore a single file**
+```bash
+python load_math_data.py  # Restores main file only
 ```
 
 This will:
@@ -63,7 +74,10 @@ This will:
 You can also specify custom paths:
 
 ```bash
-# Use custom MATH dataset location
+# Restore both files with custom MATH location
+python load_math_data.py --all /path/to/MATH
+
+# Restore specific file with custom MATH location
 python load_math_data.py math_tutoring_annotations_redacted.json /path/to/MATH
 
 # Specify custom output file

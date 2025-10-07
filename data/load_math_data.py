@@ -4,6 +4,7 @@ Restore redacted math tutoring annotations by loading problem files.
 
 Usage:
   python load_math_data.py [REDACTED_JSON] [MATH_ROOT] [-o OUTPUT]
+  python load_math_data.py --all [MATH_ROOT]  # Restore both redacted files
 
 Positional args (optional):
   REDACTED_JSON   Path to the redacted annotations JSON (default: math_tutoring_annotations_redacted.json)
@@ -11,10 +12,12 @@ Positional args (optional):
 
 Options:
   -o, --output    Output JSON path (default: math_tutoring_annotations.json)
+  --all           Restore both redacted files (main and benchmarking)
   --no-strict     Disable strict checks for required keys in problem files
 
 Example:
-  python load_math_data.py  # Uses all defaults
+  python load_math_data.py  # Restore main file using defaults
+  python load_math_data.py --all  # Restore both files using defaults
   python load_math_data.py custom_redacted.json  # Custom redacted file, default MATH root
   python load_math_data.py math_tutoring_annotations_redacted.json /path/to/MATH  # Custom paths
 """
@@ -136,16 +139,16 @@ def main() -> None:
         description="Restore redacted annotations using MATH problem files."
     )
     parser.add_argument(
-        "redacted_json", 
-        type=Path, 
+        "redacted_json",
+        type=Path,
         nargs='?',
         default=Path("math_tutoring_annotations_redacted.json"),
         help="Path to redacted annotations JSON (default: math_tutoring_annotations_redacted.json)"
     )
     parser.add_argument(
-        "math_root", 
+        "math_root",
         type=Path,
-        nargs='?', 
+        nargs='?',
         default=Path("MATH"),
         help="Root folder of MATH dataset files (default: MATH)"
     )
@@ -153,8 +156,13 @@ def main() -> None:
         "-o",
         "--output",
         type=Path,
-        default=Path("math_tutoring_annotations.json"),
+        default=None,
         help="Output JSON path (default: math_tutoring_annotations.json)",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Restore both main and benchmarking redacted files",
     )
     parser.add_argument(
         "--no-strict",
@@ -163,12 +171,36 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # If --all flag is used, restore both files
+    if args.all:
+        files_to_process = [
+            (Path("math_tutoring_annotations_redacted.json"),
+             Path("math_tutoring_annotations.json")),
+            (Path("math_tutoring_annotations_redacted_for_benchmarking.json"),
+             Path("math_tutoring_annotations_for_benchmarking.json"))
+        ]
+    else:
+        # Single file mode
+        output_path = args.output if args.output else Path("math_tutoring_annotations.json")
+        files_to_process = [(args.redacted_json, output_path)]
+
+    dataset_root = args.math_root.resolve()
+    strict = not args.no_strict
+
+    for redacted_path, output_path in files_to_process:
+        print(f"\nProcessing: {redacted_path} -> {output_path}")
+        _restore_file(redacted_path, output_path, dataset_root, strict)
+
+
+def _restore_file(redacted_json: Path, output_path: Path, dataset_root: Path, strict: bool) -> None:
+    """Restore a single redacted JSON file."""
+
     # Load redacted input
     try:
-        with args.redacted_json.open("r", encoding="utf-8") as f:
+        with redacted_json.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        print(f"Error reading redacted JSON: {e}", file=sys.stderr)
+        print(f"  Error reading redacted JSON: {e}", file=sys.stderr)
         sys.exit(1)
 
     # Accept either a list[...] or {"annotations": [...]}
@@ -180,13 +212,10 @@ def main() -> None:
         wrap_in_dict = True
     else:
         print(
-            "Input must be a list of annotations or a dict with key 'annotations' (list).",
+            "  Input must be a list of annotations or a dict with key 'annotations' (list).",
             file=sys.stderr,
         )
         sys.exit(2)
-
-    dataset_root = args.math_root.resolve()
-    strict = not args.no_strict
 
     restored_list: List[Dict[str, Any]] = []
     for i, ann in enumerate(redacted_list):
@@ -194,7 +223,7 @@ def main() -> None:
             restored = _restore_one(ann, dataset_root=dataset_root, strict=strict)
             restored_list.append(restored)
         except Exception as e:
-            print(f"[index {i}] Error restoring annotation: {e}", file=sys.stderr)
+            print(f"  [index {i}] Error restoring annotation: {e}", file=sys.stderr)
             sys.exit(3)
 
     # Preserve original top-level structure
@@ -203,16 +232,16 @@ def main() -> None:
     )
 
     # Ensure parent directory exists
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Atomic-ish write
-    tmp_path = args.output.with_suffix(args.output.suffix + ".tmp")
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     try:
         with tmp_path.open("w", encoding="utf-8") as f:
             json.dump(out_obj, f, ensure_ascii=False, indent=2)
-        tmp_path.replace(args.output)
+        tmp_path.replace(output_path)
     except Exception as e:
-        print(f"Failed to write output: {e}", file=sys.stderr)
+        print(f"  Failed to write output: {e}", file=sys.stderr)
         if tmp_path.exists():
             try:
                 tmp_path.unlink()
@@ -220,7 +249,7 @@ def main() -> None:
                 pass
         sys.exit(4)
 
-    print(f"Wrote restored annotations to: {args.output}")
+    print(f"  ✓ Wrote restored annotations to: {output_path}")
 
 
 if __name__ == "__main__":

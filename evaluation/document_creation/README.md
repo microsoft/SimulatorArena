@@ -32,8 +32,8 @@ Evaluate the performance of different AI assistant models for document creation 
 **Quick Start**:
 ```bash
 # Run complete evaluation for assistant models
-./evaluate_assistants.sh \
-    --file_name "zero-shot-cot-user-profile-up-preference_and_writing_interaction_style-gemini-2.0-flash" \
+bash ./evaluate_assistants.sh \
+    --file_name "gpt-5-mini/zero-shot-cot-user-profile_up-preference_and_writing_interaction_style_for_benchmarking" \
     --annotation_id "document_creation_annotations"
 ```
 
@@ -50,8 +50,8 @@ Assess how well user simulators mimic human behavior in document creation tasks.
 **Quick Start**:
 ```bash
 # Run complete evaluation for a user simulator
-./evaluate_simulators.sh \
-    --file_name "zero-shot-cot-user-profile-up-preference_and_writing_interaction_style" \
+bash ./evaluate_simulators.sh \
+    --file_name "gpt-5-mini/zero-shot-cot-user-profile_up-preference_and_writing_interaction_style" \
     --annotation_id "document_creation_annotations"
 ```
 
@@ -75,17 +75,17 @@ Extracts the final document from each conversation.
 ```bash
 # Generate batch prompts for document extraction
 python scripts/generate_batch_prompts_for_document_extraction.py \
-    --file_name "zero-shot-cot" \
+    --file_name "gpt-5-mini/zero-shot-cot" \
     --annotation_id "document_creation_annotations" \
     --terminate_help
 
 # Submit batch to OpenAI (50% cost reduction with batch API)
+# The script will automatically wait for completion (default: 2 hours max)
 python scripts/process_batch_evaluation.py \
-    --batch_file "batch_prompts/extracted_document/zero-shot-cot.jsonl" \
-    --model "gpt-4o-2024-11-20" \
-    --wait
+    --batch_file "batch_prompts/extracted_document/gpt-5-mini/zero-shot-cot.jsonl" \
+    --model "gpt-5-mini"
 
-# Results saved to: evaluation_outputs/extracted_document/zero-shot-cot.json
+# Results saved to: evaluation_outputs/extracted_document/gpt-5-mini/zero-shot-cot.json
 ```
 
 ### Step 2: Document Quality Rating
@@ -95,17 +95,16 @@ Evaluates the quality of extracted documents based on document type and intent.
 ```bash
 # Generate batch prompts for document rating
 python scripts/generate_batch_prompts_for_rating.py \
-    --file_name "zero-shot-cot" \
+    --file_name "gpt-5-mini/zero-shot-cot" \
     --annotation_id "document_creation_annotations" \
     --aspect "document"
 
 # Submit batch
 python scripts/process_batch_evaluation.py \
-    --batch_file "batch_prompts/document_rating/zero-shot-cot.jsonl" \
-    --model "gpt-4o-2024-11-20" \
-    --wait
+    --batch_file "batch_prompts/document_rating/gpt-5-mini/zero-shot-cot.jsonl" \
+    --model "gpt-5-mini"
 
-# Results saved to: evaluation_outputs/document_rating/zero-shot-cot.json
+# Results saved to: evaluation_outputs/document_rating/gpt-5-mini/zero-shot-cot.json
 ```
 
 ### Step 3: Interaction Quality Rating
@@ -115,17 +114,16 @@ Evaluates the quality of assistant-user interactions during document creation.
 ```bash
 # Generate batch prompts for interaction rating
 python scripts/generate_batch_prompts_for_rating.py \
-    --file_name "zero-shot-cot" \
+    --file_name "gpt-5-mini/zero-shot-cot" \
     --annotation_id "document_creation_annotations" \
     --aspect "interaction"
 
 # Submit batch
 python scripts/process_batch_evaluation.py \
-    --batch_file "batch_prompts/interaction_rating/zero-shot-cot.jsonl" \
-    --model "gpt-4o-2024-11-20" \
-    --wait
+    --batch_file "batch_prompts/interaction_rating/gpt-5-mini/zero-shot-cot.jsonl" \
+    --model "gpt-5-mini"
 
-# Results saved to: evaluation_outputs/interaction_rating/zero-shot-cot.json
+# Results saved to: evaluation_outputs/interaction_rating/gpt-5-mini/zero-shot-cot.json
 ```
 
 ## 📈 Performance Analysis
@@ -137,24 +135,24 @@ Analyze the performance of different AI assistants:
 ```bash
 # Show assistant performance sorted by document quality
 python scripts/show_assistant_performance.py \
-    --file_name "zero-shot-cot-benchmarking" \
+    --file_name "gpt-5-mini/zero-shot-cot_for_benchmarking" \
     --annotation_id "document_creation_annotations" \
     --sort_by "document"
 
 # Sort by interaction quality
 python scripts/show_assistant_performance.py \
-    --file_name "zero-shot-cot-benchmarking" \
+    --file_name "gpt-5-mini/zero-shot-cot_for_benchmarking" \
     --sort_by "interaction"
 
 # Sort by combined score
 python scripts/show_assistant_performance.py \
-    --file_name "zero-shot-cot-benchmarking" \
+    --file_name "gpt-5-mini/zero-shot-cot_for_benchmarking" \
     --sort_by "combined" \
     --top_k 10
 
 # Export results
 python scripts/show_assistant_performance.py \
-    --file_name "zero-shot-cot-benchmarking" \
+    --file_name "gpt-5-mini/zero-shot-cot_for_benchmarking" \
     --sort_by "combined" \
     --export "results/assistant_performance.json"
 ```
@@ -176,26 +174,26 @@ Evaluate simulator fidelity against human behavior:
 ```bash
 # Analyze both aspects with normalization
 python scripts/show_simulator_performance.py \
-    --file_name "zero-shot-cot" \
+    --file_name "gpt-5-mini/zero-shot-cot" \
     --annotation_id "document_creation_annotations" \
     --aspect "both" \
     --normalize
 
 # Document aspect only
 python scripts/show_simulator_performance.py \
-    --file_name "zero-shot-cot" \
+    --file_name "gpt-5-mini/zero-shot-cot" \
     --aspect "document" \
     --normalize
 
 # Without normalization
 python scripts/show_simulator_performance.py \
-    --file_name "zero-shot-cot" \
+    --file_name "gpt-5-mini/zero-shot-cot" \
     --aspect "both" \
     --no_normalize
 
 # Export results
 python scripts/show_simulator_performance.py \
-    --file_name "zero-shot-cot" \
+    --file_name "gpt-5-mini/zero-shot-cot" \
     --aspect "both" \
     --export "results/simulator_performance.json"
 ```
@@ -214,29 +212,86 @@ python scripts/show_simulator_performance.py \
 
 ### Batch Processing Options
 
+The batch processing script **automatically waits** for batch completion by default and is **idempotent** (safe to rerun).
+
+#### Idempotent Behavior (Safe Rerun)
+
+The script **automatically checks** for existing batches before submitting duplicates:
+
 ```bash
-# Process with custom model
+# First run - submits batch and waits
+python scripts/process_batch_evaluation.py \
+    --batch_file "batch_prompts/extracted_document/gpt-5-mini/test.jsonl" \
+    --model "gpt-5-mini"
+# → Submits batch abc123, saves metadata to logs/
+# → Waits for completion
+
+# User cancels or times out (Ctrl+C)
+# Later, rerun SAME command
+python scripts/process_batch_evaluation.py \
+    --batch_file "batch_prompts/extracted_document/gpt-5-mini/test.jsonl" \
+    --model "gpt-5-mini"
+# → Finds existing batch abc123 in logs/
+# → Checks status: "in_progress"
+# → RESUMES waiting (NO duplicate batch!)
+# → Retrieves results when complete
+
+# Much later, rerun again
+python scripts/process_batch_evaluation.py \
+    --batch_file "batch_prompts/extracted_document/gpt-5-mini/test.jsonl" \
+    --model "gpt-5-mini"
+# → Finds existing batch abc123
+# → Checks status: "completed"
+# → Retrieves results immediately (NO duplicate batch!)
+```
+
+**Batch metadata** is automatically saved to `batch_prompts/{evaluation_type}/logs/{filename}.json` for tracking.
+
+#### Advanced Options
+
+```bash
+# Customize polling and wait time
 python scripts/process_batch_evaluation.py \
     --batch_file "path/to/batch.jsonl" \
-    --model "gpt-4o-2024-11-20" \
-    --poll_interval 60
+    --model "gpt-5-mini" \
+    --poll_interval 30 \
+    --max_wait 3600
 
-# Check batch status
+# Force new batch (ignore existing)
+python scripts/process_batch_evaluation.py \
+    --batch_file "path/to/batch.jsonl" \
+    --model "gpt-5-mini" \
+    --no_check_existing
+
+# Check status only (no waiting)
 python scripts/process_batch_evaluation.py \
     --batch_file "path/to/batch.jsonl" \
     --batch_id "batch_xxx" \
     --check_status
+
+# Use specific batch ID
+python scripts/process_batch_evaluation.py \
+    --batch_file "path/to/batch.jsonl" \
+    --batch_id "batch_xxx"
 ```
+
+**Parameters**:
+- `--poll_interval`: Polling frequency in seconds (default: 30)
+- `--max_wait`: Maximum wait time in seconds (default: 7200 = 2 hours)
+- `--check_status`: Check status of existing batch without waiting
+- `--no_check_existing`: Force new batch submission (ignore existing batches)
+- `--batch_id`: Use specific batch ID instead of checking for existing
 
 ### Custom Evaluation Parameters
 
 **For Document Extraction**:
 - `--terminate_help`: Use terminated conversation endpoints (highly recommended)
-- `--max_tokens`: Maximum tokens for extracted document (default: 2000)
+- `--max_tokens`: Maximum tokens for extracted document (default: 5000)
 
 **For Rating Evaluation**:
 - `--aspect`: "document" or "interaction"
-- `--evaluator_model`: Model for evaluation (default: "gpt-4o-2024-11-20")
+- `--evaluator_model`: Model for evaluation (default: "gpt-5-mini")
+- `--max_tokens`: Maximum tokens for rating response (default: 5000)
 
 **For Performance Analysis**:
 - `--normalize`: Normalize human ratings per annotator (default: True)
@@ -264,14 +319,18 @@ The framework evaluates three document types with various intents:
 
 ### Input Files
 - **Simulation outputs**: `../../simulation/output/{annotation_id}/{file_name}.json`
+  - Example: `../../simulation/output/document_creation_annotations/gpt-5-mini/zero-shot-cot.json`
 - **Terminated conversations**: `../../simulation/terminated_conversations/{annotation_id}/{file_name}.json`
-- **Human annotations**: `../../simulation/data/document_creation_annotations.json`
+  - Example: `../../simulation/terminated_conversations/document_creation_annotations/gpt-5-mini/zero-shot-cot.json`
+- **Human annotations**: `../../data/document_creation_annotations.json`
 
 ### Output Files
-- **Extracted documents**: `evaluation_outputs/extracted_document/*.json`
-- **Document ratings**: `evaluation_outputs/document_rating/*.json`
-- **Interaction ratings**: `evaluation_outputs/interaction_rating/*.json`
+- **Extracted documents**: `evaluation_outputs/extracted_document/{file_name}.json`
+- **Document ratings**: `evaluation_outputs/document_rating/{file_name}.json`
+- **Interaction ratings**: `evaluation_outputs/interaction_rating/{file_name}.json`
 - **Performance summaries**: `evaluation_outputs/*_performance_*.json`
+
+**Note**: The `{file_name}` includes the user model directory (e.g., `gpt-5-mini/zero-shot-cot`). With the default user simulator `gpt-5-mini`, file names will be like `gpt-5-mini/zero-shot-cot`.
 
 
 ## 📊 Key Differences from Math Tutoring

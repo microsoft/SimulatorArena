@@ -34,11 +34,11 @@ ANTHROPIC_API_KEY=your_anthropic_key
 # Google (Gemini)
 GOOGLE_API_KEY=your_google_key
 
-# Azure (optional)
-AZURE_OPENAI_API_KEY=your_azure_key
-AZURE_OPENAI_ENDPOINT=your_azure_endpoint
+# Azure
+AZURE_KEY=your_azure_key
+AZURE_ENDPOINT=your_azure_endpoint
 
-# Mistral (optional)
+# Mistral
 MISTRAL_API_KEY=your_mistral_key
 ```
 
@@ -73,126 +73,248 @@ Resources for human evaluation:
 
 ## 🚀 Quick Start Guide
 
-### Use Case 1: Evaluate Your AI Assistant
+**Note**: For math tutoring tasks, you must first download the MATH dataset and process the data. See [data/README.md](data/README.md) for detailed instructions.
 
-Want to benchmark your assistant model against others? Follow these steps:
+### Use Case 1: Benchmark AI Assistant Models with User Simulator
+
+In this use case, we use **user simulators to engage in conversations with AI assistants** and **evaluate the performance of AI assistants** based on these interactions:
+
+- **Math Tutoring**: User simulator acts as a **student** seeking help, AI assistant acts as a **tutor** providing guidance
+- **Document Creation**: User simulator acts as a **user wanting to create documents**, AI assistant acts as a **writing helper**
+
+**Benchmark Data**:
+- **Math Tutoring**: 50 math problems of varying difficulty
+- **Document Creation**: 51 document topics (blog posts, emails, creative writing)
+- **Data Source**: `data/math_tutoring_annotations_for_benchmarking.json` and `data/document_creation_annotations_for_benchmarking.json`
+
+Follow these steps to benchmark your AI assistant models:
 
 #### Step 1: Run Simulations with Your Assistant
+
+**Quick Test** (1 conversation to verify setup):
 ```bash
 cd simulation
 
-# For math tutoring
+# Math tutoring - quick test with 1 conversation
 python user_simulation_math_tutoring.py \
+    --version=zero-shot-cot-user-profile \
+    --user_profile_version=interaction_style \
+    --user_model=gpt-5-mini \
+    --num_conversations=1 \
     --benchmarking \
-    --allowed_models "your-model-name,gpt-4o,claude-3-opus" \
-    --num_workers 10
+    --allowed_models "gpt-5-mini,gpt-5-nano"
 
-# For document creation
+# Document creation - quick test with 1 conversation
 python user_simulation_document_creation.py \
+    --version=zero-shot-cot-user-profile \
+    --user_profile_version=preference_and_writing_interaction_style \
+    --user_model=gpt-5-mini \
+    --num_conversations=1 \
     --benchmarking \
-    --allowed_models "your-model-name,gpt-4o,claude-3-opus" \
-    --num_workers 10
+    --allowed_models "gpt-5-mini,gpt-5-nano"
 ```
+
+**Full Benchmark** (all conversations):
+```bash
+# Math tutoring - full 50 conversations
+python user_simulation_math_tutoring.py \
+    --version=zero-shot-cot-user-profile \
+    --user_profile_version=interaction_style \
+    --user_model=gpt-5-mini \
+    --num_conversations=-1 \
+    --benchmarking \
+    --allowed_models "gpt-5-mini,gpt-5-nano"
+
+# Document creation - full 51 conversations
+python user_simulation_document_creation.py \
+    --version=zero-shot-cot-user-profile \
+    --user_profile_version=preference_and_writing_interaction_style \
+    --user_model=gpt-5-mini \
+    --num_conversations=-1 \
+    --benchmarking \
+    --allowed_models "gpt-5-mini,gpt-5-nano"
+```
+
+**Notes**:
+- Quick test uses `--num_conversations=1` for rapid verification
+- Full benchmark uses `--num_conversations=-1` to run all 50 (math) or 51 (document) conversations
+- User simulator model is `gpt-5-mini` for cost efficiency
+- Replace assistant models in `--allowed_models` with your own model names
 
 #### Step 2: Generate Termination Points of the Simulated Conversations
 ```bash
 # Math tutoring
 python terminate_conversation_math_tutoring.py \
-    --simulation_path "output/math_tutoring_annotations/your_simulation.json"
+    --annotation_id math_tutoring_annotations \
+    --simulation_path "{user_model}/{simulation_name}.json"
 
 # Document creation
 python terminate_conversation_document_creation.py \
-    --simulation_path "output/document_creation_annotations/your_simulation.json"
+    --annotation_id document_creation_annotations \
+    --simulation_path "{user_model}/{simulation_name}.json"
 ```
+
+**Notes**:
+- `annotation_id` is always `math_tutoring_annotations` or `document_creation_annotations` (NOT `*_for_benchmarking`)
+- `simulation_path` should be `{user_model}/{simulation_name}.json` (e.g., `gpt-5-mini/zero-shot-cot_for_benchmarking.json`)
+- The `_for_benchmarking` suffix is part of the simulation name, not the annotation_id
+- The script constructs the full path as: `simulation/output/{annotation_id}/{simulation_path}`
 
 #### Step 3: Run Evaluation Pipeline
 ```bash
 # Math tutoring evaluation
 cd ../evaluation/math_tutoring
-./evaluate_assistants.sh --file_name "your_simulation"
+bash ./evaluate_assistants.sh \
+    --file_name "{user_model}/{simulation_name}" \
+    --annotation_id "math_tutoring_annotations"
 
 # Document creation evaluation
 cd ../evaluation/document_creation
-./evaluate_assistants.sh --file_name "your_simulation"
+bash ./evaluate_assistants.sh \
+    --file_name "{user_model}/{simulation_name}" \
+    --annotation_id "document_creation_annotations"
 ```
+
+**Note**: Use the same `{user_model}/{simulation_name}` from Steps 1-2 (e.g., `gpt-5-mini/zero-shot-cot-user-profile_up-interaction_style_for_benchmarking`)
 
 #### Step 4: View Results
 ```bash
-# View performance metrics
+# Math tutoring - view performance metrics
 python scripts/show_assistant_performance.py \
-    --file_name "your_simulation" \
-    --sort_by "correctness"  # For math tutoring
-    # --sort_by "document"    # For document creation
+    --file_name "{user_model}/{simulation_name}" \
+    --annotation_id "math_tutoring_annotations" \
+    --sort_by "correctness"
+
+# Document creation - view performance metrics
+python scripts/show_assistant_performance.py \
+    --file_name "{user_model}/{simulation_name}" \
+    --annotation_id "document_creation_annotations" \
+    --sort_by "document"
 ```
 
 ### Use Case 2: Develop and Evaluate User Simulators
 
-Want to test different user simulator configurations or develop your own? Follow these steps:
+In this use case, we **evaluate different user simulator configurations** by comparing how closely AI assistant performance with simulators matches AI assistant performance with real human users.
 
-#### Step 1: Choose or Create Your Simulator Configuration
+**Evaluation Method**:
+- Run the **same AI assistants** with both user simulators and real humans
+- Compare assistant performance metrics (ratings, correctness, F1 scores)
+- Higher correlation with human baseline = better simulator
 
-**Option A: Test existing configurations**
+**Benchmark Data**:
+- **Math Tutoring**: 450 real human-AI conversations across multiple assistants
+- **Document Creation**: 459 real human-AI conversations across multiple assistants
+- **Data Source**: `data/math_tutoring_annotations.json` and `data/document_creation_annotations.json` (WITHOUT `_for_benchmarking` suffix)
+
+Follow these steps to evaluate your user simulator configurations:
+
+#### Step 1: Run User Simulations
+
+**Existing Simulator Strategies**: See `user_simulation_math_tutoring.sh` and `user_simulation_document_creation.sh` for examples of different simulation strategies (baseline, profile-based, with/without refinement, etc.). These scripts demonstrate various configurations but are resource-intensive to run in full.
+
+**Quick Test** (1 conversation to verify setup):
 ```bash
 cd simulation
 
-# Test different simulator strategies (see shell scripts for examples)
-bash user_simulation_math_tutoring.sh    # Various math tutoring configs
-bash user_simulation_document_creation.sh # Various document creation configs
-```
-
-**Option B: Create custom simulator prompts**
-```bash
-# Create your prompt templates in simulation/prompts/{task}/
-# - {your-strategy}-initial-query.txt  (for first query)
-# - {your-strategy}.txt                (for subsequent queries)
-
-# Then run with your custom strategy
-python user_simulation_math_tutoring.py --version="your-strategy"
-```
-
-#### Step 2: Run Simulations
-```bash
-# Math tutoring with specific configuration
+# Math tutoring - test your simulator strategy
 python user_simulation_math_tutoring.py \
-    --version="zero-shot-cot-user-profile" \
-    --user_profile_version="interaction_style" \
-    --user_model="gpt-4o-2024-11-20"
+    --version=zero-shot-cot-user-profile \
+    --user_profile_version=interaction_style \
+    --user_model=gpt-5-mini \
+    --num_conversations=1
 
-# Document creation with specific configuration  
+# Document creation - test your simulator strategy
 python user_simulation_document_creation.py \
-    --version="zero-shot-cot-user-profile" \
-    --user_profile_version="preference_and_writing_interaction_style" \
-    --user_model="gemini-2.0-flash"
+    --version=zero-shot-cot-user-profile \
+    --user_profile_version=preference_and_writing_interaction_style \
+    --user_model=gpt-5-mini \
+    --num_conversations=1
 ```
 
-#### Step 3: Generate Termination Points
+**Full Simulation** (all conversations):
+```bash
+# Math tutoring - full 450 conversations
+python user_simulation_math_tutoring.py \
+    --version=zero-shot-cot-user-profile \
+    --user_profile_version=interaction_style \
+    --user_model=gpt-5-mini \
+    --num_conversations=-1
+
+# Document creation - full 459 conversations
+python user_simulation_document_creation.py \
+    --version=zero-shot-cot-user-profile \
+    --user_profile_version=preference_and_writing_interaction_style \
+    --user_model=gpt-5-mini \
+    --num_conversations=-1
+```
+
+**Create Custom Simulator Prompts**:
+```bash
+# 1. Create your prompt templates in simulation/prompts/{task}/
+#    - {your-strategy}-initial-query.txt  (for first query)
+#    - {your-strategy}.txt                (for subsequent queries)
+
+# 2. Run with your custom strategy
+python user_simulation_math_tutoring.py \
+    --version=your-strategy \
+    --user_model=gpt-5-mini \
+    --num_conversations=1  # Test first, then use -1 for full run
+```
+
+**Notes**:
+- Start with `--num_conversations=1` for testing, then use `-1` for full evaluation (450 conversations for math, 459 for document creation)
+- User simulator model is `gpt-5-mini` for cost efficiency
+- Replace `--version` and `--user_profile_version` to test different strategies
+
+#### Step 2: Generate Termination Points of the Simulated Conversations
 ```bash
 # Math tutoring
 python terminate_conversation_math_tutoring.py \
-    --simulation_path "output/math_tutoring_annotations/your_simulation.json"
+    --annotation_id math_tutoring_annotations \
+    --simulation_path "{user_model}/{simulation_name}.json"
 
 # Document creation
 python terminate_conversation_document_creation.py \
-    --simulation_path "output/document_creation_annotations/your_simulation.json"
+    --annotation_id document_creation_annotations \
+    --simulation_path "{user_model}/{simulation_name}.json"
 ```
 
-#### Step 4: Evaluate Simulator Performance
+**Notes**:
+- `annotation_id` is always `math_tutoring_annotations` or `document_creation_annotations` (NOT `*_for_benchmarking`)
+- `simulation_path` should be `{user_model}/{simulation_name}.json` (e.g., `gpt-5-mini/zero-shot-cot.json`)
+- The `_for_benchmarking` suffix (if used) is part of the simulation name, not the annotation_id
+- The script constructs the full path as: `simulation/output/{annotation_id}/{simulation_path}`
+
+#### Step 3: Evaluate Simulator Performance
 ```bash
 # Math tutoring evaluation
 cd ../evaluation/math_tutoring
-./evaluate_simulators.sh --file_name "your_simulation"
+bash ./evaluate_simulators.sh \
+    --file_name "{user_model}/{simulation_name}" \
+    --annotation_id "math_tutoring_annotations"
 
 # Document creation evaluation
 cd ../evaluation/document_creation
-./evaluate_simulators.sh --file_name "your_simulation"
+bash ./evaluate_simulators.sh \
+    --file_name "{user_model}/{simulation_name}" \
+    --annotation_id "document_creation_annotations"
 ```
 
-#### Step 5: Analyze Results
+**Note**: Use the same `{user_model}/{simulation_name}` from Steps 1-2 (e.g., `gpt-5-mini/zero-shot-cot-user-profile_up-interaction_style`)
+
+#### Step 4: View Results
 ```bash
-# View correlation metrics
+# Math tutoring - view correlation metrics
 python scripts/show_simulator_performance.py \
-    --file_name "your_simulation" \
-    --aspect "both"  # Shows both interaction and outcome metrics
+    --file_name "{user_model}/{simulation_name}" \
+    --annotation_id "math_tutoring_annotations" \
+    --aspect "both"
+
+# Document creation - view correlation metrics
+python scripts/show_simulator_performance.py \
+    --file_name "{user_model}/{simulation_name}" \
+    --annotation_id "document_creation_annotations" \
+    --aspect "both"
 ```
 
 ## 📊 Key Metrics
@@ -242,6 +364,8 @@ The following figure shows the performance of different user simulator configura
 
 The chart compares various simulator strategies, from basic zero-shot generation to advanced profile-based approaches with different feature combinations. Higher correlation values indicate better alignment with human behavior.
 
+## Acknowledgements
+We thank Jonathan Zheng for beta testing this codebase prior to public release.
 
 ## Contributing
 

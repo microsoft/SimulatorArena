@@ -23,6 +23,11 @@ from datetime import datetime
 from openai import OpenAI
 import sys
 
+from dotenv import load_dotenv
+dotenv_path = os.path.expanduser('~/.env')
+load_dotenv(dotenv_path)
+os.environ['CURL_CA_BUNDLE'] = ''
+
 def extract_rating(text: str) -> str:
     """
     Extract the numeric rating (1-10) from evaluation text.
@@ -154,17 +159,54 @@ def merge_nested_dicts(dict1: Dict, dict2: Dict) -> Dict:
 
 class BatchEvaluationProcessor:
     """Process batch evaluations for document creation task."""
-    
+
     def __init__(self, api_key: str = None):
         """Initialize the batch processor."""
         if not api_key:
             api_key = os.environ.get("OPENAI_API_KEY")
-        
+
         if not api_key:
             raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
-        
+
         self.client = OpenAI(api_key=api_key)
-    
+
+    def check_existing_batch(self, batch_file: Path) -> Optional[Dict]:
+        """
+        Check if a batch has already been submitted for this file.
+
+        Returns:
+            Dict with batch info if exists, None otherwise
+        """
+        # Check for metadata file in standard location
+        # Pattern: batch_prompts/{evaluation_type}/logs/{filename}.json
+        metadata_path = batch_file.parent / "logs" / f"{batch_file.stem}.json"
+
+        if metadata_path.exists():
+            print(f"Found existing batch metadata: {metadata_path}")
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+
+            batch_id = metadata.get("batch_id")
+            if batch_id:
+                # Check batch status
+                try:
+                    batch = self.client.batches.retrieve(batch_id)
+                    print(f"Existing batch found: {batch_id}")
+                    print(f"Status: {batch.status}")
+
+                    return {
+                        "batch_id": batch_id,
+                        "metadata_file": str(metadata_path),
+                        "status": batch.status,
+                        "batch": batch,
+                        "metadata": metadata
+                    }
+                except Exception as e:
+                    print(f"Could not retrieve batch {batch_id}: {e}")
+                    print("Will create a new batch.")
+
+        return None
+
     def submit_batch(self, batch_file: Path, description: str = None) -> Tuple[str, Dict]:
         """
         Submit a batch file for processing.
@@ -213,10 +255,10 @@ class BatchEvaluationProcessor:
     def retrieve_results(self, batch_id: str, evaluation_type: str) -> Dict:
         """
         Retrieve and process batch results based on evaluation type.
-        
+
         Args:
             batch_id: The batch ID
-            evaluation_type: One of 'rating_document', 'rating_interaction', 'extracted_document'
+            evaluation_type: One of 'document_rating', 'interaction_rating', 'extracted_document'
         """
         batch = self.client.batches.retrieve(batch_id)
         
@@ -255,7 +297,7 @@ class BatchEvaluationProcessor:
                     continue
                 
                 # Process based on evaluation type
-                if evaluation_type.startswith("rating"):
+                if "rating" in evaluation_type:
                     # Extract rating for both document and interaction evaluations
                     rating = extract_rating(output)
                     
@@ -336,7 +378,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="gpt-4o-2024-11-20",
+        default="gpt-5-mini",
         help="Model to use for evaluation (only for submission)"
     )
     parser.add_argument(
@@ -366,7 +408,12 @@ def main():
         default=7200,
         help="Maximum wait time in seconds (default: 7200 = 2 hours)"
     )
-    
+    parser.add_argument(
+        "--no_check_existing",
+        action="store_true",
+        help="Don't check for existing batch, always create new batch"
+    )
+
     args = parser.parse_args()
     
     # Initialize processor
@@ -374,26 +421,51 @@ def main():
     
     # Determine evaluation type from batch file path
     batch_file = Path(args.batch_file)
-    if "rating_document" in str(batch_file):
-        evaluation_type = "rating_document"
-    elif "rating_interaction" in str(batch_file):
-        evaluation_type = "rating_interaction"
+    # Check for directory names used by generate scripts (document_rating, interaction_rating, extracted_document)
+    if "document_rating" in str(batch_file):
+        evaluation_type = "document_rating"
+    elif "interaction_rating" in str(batch_file):
+        evaluation_type = "interaction_rating"
     elif "extracted_document" in str(batch_file) or "extract" in str(batch_file):
         evaluation_type = "extracted_document"
     else:
-        # Try to infer from parent directories
+        # Fallback: infer from keywords
         if "document" in str(batch_file) and "rating" in str(batch_file):
-            evaluation_type = "rating_document"
+            evaluation_type = "document_rating"
         elif "interaction" in str(batch_file) and "rating" in str(batch_file):
-            evaluation_type = "rating_interaction"
+            evaluation_type = "interaction_rating"
         else:
             raise ValueError(f"Cannot determine evaluation type from batch file path: {batch_file}")
     
     print(f"Evaluation type: {evaluation_type}")
-    
+
+    # Check for existing batch before submitting
+    existing_batch = None
+    if not args.batch_id and not args.no_check_existing:
+        existing_batch = processor.check_existing_batch(batch_file)
+
+        if existing_batch:
+            if existing_batch["status"] == "completed":
+                print("Batch already completed! Retrieving results...")
+                batch_id = existing_batch["batch_id"]
+                # Skip to results retrieval (will happen after the polling section)
+            elif existing_batch["status"] in ["failed", "expired", "cancelled"]:
+                print(f"Previous batch {existing_batch['status']}. Creating new batch...")
+                existing_batch = None  # Allow new submission
+            elif existing_batch["status"] in ["validating", "in_progress", "finalizing"]:
+                print(f"Batch is {existing_batch['status']}. Resuming wait for completion...")
+                batch_id = existing_batch["batch_id"]
+                # Will continue to polling section
+            else:
+                print(f"Unknown batch status: {existing_batch['status']}. Creating new batch...")
+                existing_batch = None
+
     # Submit new batch or use existing
     if args.batch_id:
         batch_id = args.batch_id
+        print(f"Using provided batch ID: {batch_id}")
+    elif existing_batch:
+        batch_id = existing_batch["batch_id"]
         print(f"Using existing batch: {batch_id}")
     else:
         print(f"Submitting batch file: {batch_file}")
@@ -402,35 +474,42 @@ def main():
             description=f"{evaluation_type} evaluation"
         )
         print(f"Batch submitted: {batch_id}")
-        
-        # Save batch info
+
+        # Load keys file if it exists (for metadata)
+        keys_file = batch_file.parent / f"{batch_file.stem}_keys.json"
+        key_dict = {}
+        if keys_file.exists():
+            with open(keys_file, 'r') as f:
+                keys_data = json.load(f)
+                # Convert list keys to dict for document creation
+                if isinstance(keys_data.get("keys"), list):
+                    key_dict = {f"{k[0]}|{k[1]}|{k[2]}|{k[3]}": k
+                               for k in keys_data["keys"]} if keys_data["keys"] and len(keys_data["keys"][0]) == 4 else {}
+
+        # Prepare metadata
+        metadata = {
+            "batch_id": batch_id,
+            "batch_info": batch_info,
+            "evaluation_type": evaluation_type,
+            "batch_file": str(batch_file),
+            "submitted_at": datetime.now().isoformat(),
+            "key_dict": key_dict
+        }
+
+        # Always save batch metadata to standard location
+        metadata_path = batch_file.parent / "logs" / f"{batch_file.stem}.json"
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        print(f"Batch metadata saved to: {metadata_path}")
+
+        # Also save to custom log file if requested (for backwards compatibility)
         if args.log_file:
             log_path = Path(args.log_file)
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Load keys file if it exists
-            keys_file = batch_file.parent / f"{batch_file.stem}_keys.json"
-            key_dict = {}
-            if keys_file.exists():
-                with open(keys_file, 'r') as f:
-                    keys_data = json.load(f)
-                    # Convert list keys to dict for document creation
-                    if isinstance(keys_data.get("keys"), list):
-                        key_dict = {f"{k[0]}|{k[1]}|{k[2]}|{k[3]}": k 
-                                   for k in keys_data["keys"]} if keys_data["keys"] and len(keys_data["keys"][0]) == 4 else {}
-            
-            log_data = {
-                "batch_id": batch_id,
-                "batch_info": batch_info,
-                "evaluation_type": evaluation_type,
-                "batch_file": str(batch_file),
-                "submitted_at": datetime.now().isoformat(),
-                "key_dict": key_dict
-            }
-            
             with open(log_path, 'w') as f:
-                json.dump(log_data, f, indent=2)
-            print(f"Log saved to: {log_path}")
+                json.dump(metadata, f, indent=2)
+            print(f"Log also saved to: {log_path}")
     
     # Check status only
     if args.check_status:
@@ -475,17 +554,20 @@ def main():
             print(f"  ... and {len(results_data['errors']) - 5} more errors")
     
     # Save results
-    output_dir = batch_file.parent.parent / "evaluation_outputs" / evaluation_type.replace("_", "_")
+    # Get base directory (evaluation/document_creation/)
+    base_dir = Path(__file__).parent.parent
+    output_dir = base_dir / "evaluation_outputs" / evaluation_type
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Determine output file name
-    if evaluation_type.startswith("rating"):
-        # For rating, use the stem without extension
-        output_file = output_dir / f"{batch_file.stem}.json"
-    else:
-        # For document extraction
-        output_file = output_dir / f"{batch_file.stem}.json"
-    
+
+    # Preserve directory structure (e.g., gpt-5-mini/simulation_name)
+    # base_dir is evaluation/document_creation/, preserves gpt-5-mini/file structure
+    # relative_to gives us: user_model/filename.jsonl from batch_prompts/{evaluation_type}/
+    rel_path = batch_file.relative_to(batch_file.parent.parent)
+    output_file = output_dir / rel_path.with_suffix('.json')
+
+    # Ensure parent directory exists (handles subdirectories in file_name like "gpt-5-mini/...")
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
     # Load existing results if any
     existing_results = {}
     if output_file.exists():
@@ -500,7 +582,7 @@ def main():
                 existing_results = existing_data
     
     # Merge results
-    if evaluation_type.startswith("rating"):
+    if "rating" in evaluation_type:
         final_results = merge_nested_dicts(existing_results, results_data['results'])
         output_data = {
             "evaluations": final_results,

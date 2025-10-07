@@ -12,11 +12,11 @@ set -e  # Exit on error
 # Default values
 FILE_NAME=""
 ANNOTATION_ID="math_tutoring_annotations"
-EVALUATOR_MODEL="gpt-4o-2024-11-20"
-PROMPT_VERSION="v1"
+EVALUATOR_MODEL="gpt-5-mini"
 SKIP_COMPLETED=true
 COMPARE_WITH=""
 VERBOSE=false
+WAIT_INTERVAL=30
 
 # Color codes for output
 RED='\033[0;31m'
@@ -40,10 +40,6 @@ while [[ $# -gt 0 ]]; do
             EVALUATOR_MODEL="$2"
             shift 2
             ;;
-        --prompt_version)
-            PROMPT_VERSION="$2"
-            shift 2
-            ;;
         --compare_with)
             COMPARE_WITH="$2"
             shift 2
@@ -56,17 +52,21 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
+        --wait_interval)
+            WAIT_INTERVAL="$2"
+            shift 2
+            ;;
         --help)
             echo "Usage: $0 --file_name <name> [options]"
             echo ""
             echo "Options:"
             echo "  --file_name          Name of simulation output file (required)"
             echo "  --annotation_id      Annotation dataset ID (default: math_tutoring_annotations)"
-            echo "  --evaluator_model    Model for evaluation (default: gpt-4o-2024-11-20)"
-            echo "  --prompt_version     Prompt version (default: v1)"
+            echo "  --evaluator_model    Model for evaluation (default: gpt-5-mini)"
             echo "  --compare_with       Additional simulators to compare (comma-separated)"
             echo "  --no-skip           Don't skip already completed evaluations"
             echo "  --verbose           Show detailed output"
+            echo "  --wait_interval     Polling interval in seconds (default: 30)"
             echo "  --help              Show this help message"
             echo ""
             echo "Examples:"
@@ -124,62 +124,25 @@ main() {
     # STEP 1: Interaction Rating
     # ============================================================
     print_step "STEP 1: Interaction Rating Evaluation"
-    
-    RATING_OUTPUT="evaluation_outputs/interaction_rating/${FILE_NAME}_${PROMPT_VERSION}.json"
-    
+
+    RATING_OUTPUT="evaluation_outputs/interaction_rating/${FILE_NAME}.json"
+
     if [ -f "$RATING_OUTPUT" ] && [ "$SKIP_COMPLETED" = true ]; then
         echo -e "${YELLOW}Skipping: Interaction rating already completed${NC}"
     else
         echo "Generating batch prompts for interaction rating..."
         python scripts/generate_batch_prompts_for_interaction_rating.py \
             --file_name "$FILE_NAME" \
-            --annotation_id "$ANNOTATION_ID" \
-            --terminate_help \
-            --prompt_version "$PROMPT_VERSION"
-        
-        BATCH_FILE="batch_prompts/interaction_rating/${FILE_NAME}_${PROMPT_VERSION}.jsonl"
-        
+            --annotation_id "$ANNOTATION_ID"
+
+        BATCH_FILE="batch_prompts/interaction_rating/${FILE_NAME}.jsonl"
+
         echo "Submitting batch to OpenAI..."
-        BATCH_OUTPUT=$(python scripts/process_batch_evaluation.py \
-            --batch_file "$BATCH_FILE" \
-            --model "$EVALUATOR_MODEL" 2>&1)
-        
-        # Extract batch ID
-        BATCH_ID=$(echo "$BATCH_OUTPUT" | grep -oP 'batch_[a-zA-Z0-9]+' | head -1)
-        
-        if [ -z "$BATCH_ID" ]; then
-            echo -e "${RED}Error: Failed to submit batch${NC}"
-            echo "$BATCH_OUTPUT"
-            exit 1
-        fi
-        
-        echo -e "${GREEN}Batch submitted: $BATCH_ID${NC}"
-        echo "Waiting for batch to complete (this may take 10-30 minutes)..."
-        
-        # Poll for completion
-        while true; do
-            STATUS=$(python scripts/process_batch_evaluation.py \
-                --batch_file "$BATCH_FILE" \
-                --batch_id "$BATCH_ID" \
-                --check_status 2>&1 | grep -oP '(?<=Status: )[a-z]+' || echo "unknown")
-            
-            if [ "$STATUS" = "completed" ]; then
-                break
-            elif [ "$STATUS" = "failed" ] || [ "$STATUS" = "expired" ]; then
-                echo -e "${RED}Batch failed with status: $STATUS${NC}"
-                exit 1
-            fi
-            
-            echo "Status: $STATUS - waiting 30 seconds..."
-            sleep 30
-        done
-        
-        echo "Retrieving results..."
         python scripts/process_batch_evaluation.py \
             --batch_file "$BATCH_FILE" \
-            --batch_id "$BATCH_ID" \
-            --log_file "batch_prompts/interaction_rating/${FILE_NAME}_${PROMPT_VERSION}_log.json"
-        
+            --model "$EVALUATOR_MODEL" \
+            --poll_interval $WAIT_INTERVAL
+
         echo -e "${GREEN}✓ Interaction rating completed${NC}"
     fi
     
@@ -196,50 +159,16 @@ main() {
         echo "Generating batch prompts for answer extraction..."
         python scripts/generate_batch_prompts_for_answer_extraction.py \
             --file_name "$FILE_NAME" \
-            --annotation_id "$ANNOTATION_ID" \
-            --terminate_help
+            --annotation_id "$ANNOTATION_ID"
         
         BATCH_FILE="batch_prompts/extracted_answer/${FILE_NAME}.jsonl"
-        
+
         echo "Submitting batch to OpenAI..."
-        BATCH_OUTPUT=$(python scripts/process_batch_evaluation.py \
-            --batch_file "$BATCH_FILE" \
-            --model "$EVALUATOR_MODEL" 2>&1)
-        
-        BATCH_ID=$(echo "$BATCH_OUTPUT" | grep -oP 'batch_[a-zA-Z0-9]+' | head -1)
-        
-        if [ -z "$BATCH_ID" ]; then
-            echo -e "${RED}Error: Failed to submit batch${NC}"
-            exit 1
-        fi
-        
-        echo -e "${GREEN}Batch submitted: $BATCH_ID${NC}"
-        echo "Waiting for batch to complete..."
-        
-        # Poll for completion
-        while true; do
-            STATUS=$(python scripts/process_batch_evaluation.py \
-                --batch_file "$BATCH_FILE" \
-                --batch_id "$BATCH_ID" \
-                --check_status 2>&1 | grep -oP '(?<=Status: )[a-z]+' || echo "unknown")
-            
-            if [ "$STATUS" = "completed" ]; then
-                break
-            elif [ "$STATUS" = "failed" ] || [ "$STATUS" = "expired" ]; then
-                echo -e "${RED}Batch failed with status: $STATUS${NC}"
-                exit 1
-            fi
-            
-            echo "Status: $STATUS - waiting 30 seconds..."
-            sleep 30
-        done
-        
-        echo "Retrieving results..."
         python scripts/process_batch_evaluation.py \
             --batch_file "$BATCH_FILE" \
-            --batch_id "$BATCH_ID" \
-            --log_file "batch_prompts/extracted_answer/${FILE_NAME}_log.json"
-        
+            --model "$EVALUATOR_MODEL" \
+            --poll_interval $WAIT_INTERVAL
+
         echo -e "${GREEN}✓ Answer extraction completed${NC}"
     fi
     
@@ -256,50 +185,16 @@ main() {
         echo "Generating batch prompts for correctness check..."
         python scripts/generate_batch_prompts_for_correctness_check.py \
             --file_name "$FILE_NAME" \
-            --annotation_id "$ANNOTATION_ID" \
-            --terminate_help
+            --annotation_id "$ANNOTATION_ID"
         
         BATCH_FILE="batch_prompts/extracted_answer/${FILE_NAME}_correctness.jsonl"
-        
+
         echo "Submitting batch to OpenAI..."
-        BATCH_OUTPUT=$(python scripts/process_batch_evaluation.py \
-            --batch_file "$BATCH_FILE" \
-            --model "$EVALUATOR_MODEL" 2>&1)
-        
-        BATCH_ID=$(echo "$BATCH_OUTPUT" | grep -oP 'batch_[a-zA-Z0-9]+' | head -1)
-        
-        if [ -z "$BATCH_ID" ]; then
-            echo -e "${RED}Error: Failed to submit batch${NC}"
-            exit 1
-        fi
-        
-        echo -e "${GREEN}Batch submitted: $BATCH_ID${NC}"
-        echo "Waiting for batch to complete..."
-        
-        # Poll for completion
-        while true; do
-            STATUS=$(python scripts/process_batch_evaluation.py \
-                --batch_file "$BATCH_FILE" \
-                --batch_id "$BATCH_ID" \
-                --check_status 2>&1 | grep -oP '(?<=Status: )[a-z]+' || echo "unknown")
-            
-            if [ "$STATUS" = "completed" ]; then
-                break
-            elif [ "$STATUS" = "failed" ] || [ "$STATUS" = "expired" ]; then
-                echo -e "${RED}Batch failed with status: $STATUS${NC}"
-                exit 1
-            fi
-            
-            echo "Status: $STATUS - waiting 30 seconds..."
-            sleep 30
-        done
-        
-        echo "Retrieving results..."
         python scripts/process_batch_evaluation.py \
             --batch_file "$BATCH_FILE" \
-            --batch_id "$BATCH_ID" \
-            --log_file "batch_prompts/extracted_answer/${FILE_NAME}_correctness_log.json"
-        
+            --model "$EVALUATOR_MODEL" \
+            --poll_interval $WAIT_INTERVAL
+
         echo -e "${GREEN}✓ Correctness check completed${NC}"
     fi
     
@@ -319,20 +214,18 @@ main() {
         
         echo "Comparing simulators: $FILE_NAMES"
         echo ""
-        
+
         python scripts/show_simulator_performance.py \
             --annotation_id "$ANNOTATION_ID" \
             --file_names $FILE_NAMES \
-            --prompt_version "_${PROMPT_VERSION}" \
             --evaluator_model "_${EVALUATOR_MODEL//-/_}"
     else
         echo "Analyzing simulator: $FILE_NAME"
         echo ""
-        
+
         python scripts/show_simulator_performance.py \
             --annotation_id "$ANNOTATION_ID" \
             --file_names "$FILE_NAME" \
-            --prompt_version "_${PROMPT_VERSION}" \
             --evaluator_model "_${EVALUATOR_MODEL//-/_}"
     fi
     
@@ -347,24 +240,27 @@ main() {
         OUTPUT_NAME="simulator_performance_${FILE_NAME}"
     fi
     
+    # Ensure output directory exists
+    OUTPUT_JSON="evaluation_outputs/${OUTPUT_NAME}.json"
+    OUTPUT_TEX="evaluation_outputs/${OUTPUT_NAME}.tex"
+    mkdir -p $(dirname "$OUTPUT_JSON")
+
     python scripts/show_simulator_performance.py \
         --annotation_id "$ANNOTATION_ID" \
         --file_names $FILE_NAMES \
-        --prompt_version "_${PROMPT_VERSION}" \
         --evaluator_model "_${EVALUATOR_MODEL//-/_}" \
-        --output_format "json" > "evaluation_outputs/${OUTPUT_NAME}.json"
-    
-    echo "Results saved to: evaluation_outputs/${OUTPUT_NAME}.json"
-    
+        --output_format "json" > "$OUTPUT_JSON"
+
+    echo "Results saved to: $OUTPUT_JSON"
+
     # LaTeX format for papers
     python scripts/show_simulator_performance.py \
         --annotation_id "$ANNOTATION_ID" \
         --file_names $FILE_NAMES \
-        --prompt_version "_${PROMPT_VERSION}" \
         --evaluator_model "_${EVALUATOR_MODEL//-/_}" \
-        --output_format "latex" > "evaluation_outputs/${OUTPUT_NAME}.tex"
-    
-    echo "LaTeX table saved to: evaluation_outputs/${OUTPUT_NAME}.tex"
+        --output_format "latex" > "$OUTPUT_TEX"
+
+    echo "LaTeX table saved to: $OUTPUT_TEX"
     
     print_step "EVALUATION COMPLETE!"
     echo -e "${GREEN}All evaluation steps completed successfully${NC}"
@@ -378,7 +274,7 @@ main() {
     echo "  - Interaction ratings: $RATING_OUTPUT"
     echo "  - Extracted answers: $ANSWER_OUTPUT"
     echo "  - Correctness results: $CORRECTNESS_OUTPUT"
-    echo "  - Performance summary: evaluation_outputs/${OUTPUT_NAME}.json"
+    echo "  - Performance summary: $OUTPUT_JSON"
     
     # Show baseline comparison hint
     if [ -z "$COMPARE_WITH" ]; then

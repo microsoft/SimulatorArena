@@ -14,7 +14,7 @@ set -e  # Exit on error
 # Default values
 FILE_NAME=""
 ANNOTATION_ID="document_creation_annotations"
-EVALUATOR_MODEL="gpt-4o-2024-11-20"
+EVALUATOR_MODEL="gpt-5-mini"
 SKIP_COMPLETED=true
 VERBOSE=false
 WAIT_INTERVAL=30
@@ -65,7 +65,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --file_name          Name of simulation output file (required)"
             echo "  --annotation_id      Annotation dataset ID (default: document_creation_annotations)"
-            echo "  --evaluator_model    Model for evaluation (default: gpt-4o-2024-11-20)"
+            echo "  --evaluator_model    Model for evaluation (default: gpt-5-mini)"
             echo "  --no-skip           Don't skip already completed evaluations"
             echo "  --no-normalize      Don't normalize human ratings per annotator"
             echo "  --verbose           Show detailed output"
@@ -152,7 +152,6 @@ main() {
         python generate_batch_prompts_for_document_extraction.py \
             --file_name "$FILE_NAME" \
             --annotation_id "$ANNOTATION_ID" \
-            --terminate_help \
             --evaluator_model "$EVALUATOR_MODEL"
         
         BATCH_FILE="../batch_prompts/extracted_document/${FILE_NAME}.jsonl"
@@ -164,8 +163,7 @@ main() {
             python process_batch_evaluation.py \
                 --batch_file "$BATCH_FILE" \
                 --model "$EVALUATOR_MODEL" \
-                --poll_interval $WAIT_INTERVAL \
-                --wait
+                --poll_interval $WAIT_INTERVAL
             
             echo -e "${GREEN}✓ Document extraction completed${NC}"
         fi
@@ -197,8 +195,7 @@ main() {
             python process_batch_evaluation.py \
                 --batch_file "$BATCH_FILE" \
                 --model "$EVALUATOR_MODEL" \
-                --poll_interval $WAIT_INTERVAL \
-                --wait
+                --poll_interval $WAIT_INTERVAL
             
             echo -e "${GREEN}✓ Document rating completed${NC}"
         fi
@@ -230,8 +227,7 @@ main() {
             python process_batch_evaluation.py \
                 --batch_file "$BATCH_FILE" \
                 --model "$EVALUATOR_MODEL" \
-                --poll_interval $WAIT_INTERVAL \
-                --wait
+                --poll_interval $WAIT_INTERVAL
             
             echo -e "${GREEN}✓ Interaction rating completed${NC}"
         fi

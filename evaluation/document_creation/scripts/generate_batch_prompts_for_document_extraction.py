@@ -133,21 +133,23 @@ def main():
     )
     parser.add_argument(
         "--terminate_help",
-        type=str2bool,
+        nargs='?',
+        const=True,
         default=True,
+        type=lambda x: str(x).lower() in ('true', '1', 'yes'),
         help="Use terminated conversation endpoints (default: True, HIGHLY RECOMMENDED)"
     )
     parser.add_argument(
         "--evaluator_model",
         type=str,
-        default="gpt-4o-2024-11-20",
-        help="Model to use for document extraction (default: gpt-4o-2024-11-20)"
+        default="gpt-5-mini",
+        help="Model to use for document extraction (default: gpt-5-mini)"
     )
     parser.add_argument(
         "--max_tokens",
         type=int,
-        default=2000,
-        help="Maximum tokens for extracted document (default: 2000)"
+        default=5000,
+        help="Maximum tokens for extracted document (default: 5000)"
     )
     
     args = parser.parse_args()
@@ -247,8 +249,8 @@ def main():
                         "body": {
                             "model": args.evaluator_model,
                             "messages": [{"role": "user", "content": prompt}],
-                            "temperature": 0.0,
-                            "max_tokens": args.max_tokens,
+                            "temperature": 1.0,
+                            "max_completion_tokens": args.max_tokens,
                             "response_format": {"type": "json_object"}  # Ensure JSON output
                         }
                     })
@@ -267,7 +269,10 @@ def main():
     batch_dir.mkdir(parents=True, exist_ok=True)
     
     batch_file = batch_dir / f"{args.file_name}.jsonl"
-    
+
+    # Ensure parent directory exists (handles subdirectories in file_name like "gpt-5-mini/...")
+    batch_file.parent.mkdir(parents=True, exist_ok=True)
+
     with open(batch_file, 'w') as f:
         for prompt in batch_prompts:
             f.write(json.dumps(prompt) + '\n')
@@ -276,6 +281,7 @@ def main():
     
     # Save keys for later mapping
     keys_file = batch_dir / f"{args.file_name}_keys.json"
+    keys_file.parent.mkdir(parents=True, exist_ok=True)
     with open(keys_file, 'w') as f:
         json.dump({
             "keys": keys,

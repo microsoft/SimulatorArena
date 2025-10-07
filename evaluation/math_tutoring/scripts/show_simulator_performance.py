@@ -83,11 +83,11 @@ def load_evaluation_data(
     # Load correctness data for essence analysis from SimulatorArena evaluation outputs
     correctness_data_dict = {}
     for file_name in file_names:
-        correctness_path = Path(__file__).parent.parent / "evaluation_outputs" / "extracted_answer" / f"{file_name}.json"
+        correctness_path = Path(__file__).parent.parent / "evaluation_outputs" / "extracted_answer" / f"{file_name}_correctness.json"
         if not correctness_path.exists():
             print(f"Warning: Cannot find correctness file at {correctness_path}")
             continue
-        
+
         with open(correctness_path, 'r') as f:
             data = json.load(f)
             # Handle format with "answers" wrapper
@@ -291,10 +291,13 @@ def calculate_essence_f1(
                             break
                     
                     # Get predicted correctness
-                    pred = results_dict.get('correctness', 'incorrect')
+                    # Try new field name first, fallback to old
+                    pred = results_dict.get('correctness', results_dict.get('extracted_answer', 'incorrect'))
+                    # Normalize to lowercase for comparison
+                    pred = pred.lower() if isinstance(pred, str) else 'incorrect'
                     if problem_1_correctness == "unknown":
                         problem_1_correctness = "incorrect"
-                    
+
                     preds.append(pred)
                     true_labels.append(problem_1_correctness)
         
@@ -589,8 +592,8 @@ def main():
     parser.add_argument(
         "--annotation_id",
         type=str,
-        default="good_annotations",
-        help="Annotation ID for the evaluation data"
+        default="math_tutoring_annotations",
+        help="Annotation ID for the evaluation data (default: math_tutoring_annotations)"
     )
     parser.add_argument(
         "--file_names",
@@ -618,7 +621,12 @@ def main():
         nargs="*",
         help="List of models to include in intermediate and system level correlations"
     )
-    
+    parser.add_argument(
+        "--export",
+        type=str,
+        help="Export results to JSON file"
+    )
+
     args = parser.parse_args()
     
     # Load data
@@ -653,6 +661,41 @@ def main():
         predictions_dict,
         args.output_format
     )
+
+    # Export if requested
+    if args.export:
+        export_data = {
+            "annotation_id": args.annotation_id,
+            "file_names": args.file_names,
+            "normalize": args.normalize,
+            "rating_correlations": {},
+            "essence_f1_scores": {}
+        }
+
+        # Export rating correlations
+        for sim_name, corr_data in rating_correlations.items():
+            export_data["rating_correlations"][sim_name] = {
+                "conversation_level": round(corr_data["conversation_level"], 4) if corr_data["conversation_level"] is not None else None,
+                "intermediate_level": round(corr_data["intermediate_level"], 4) if corr_data["intermediate_level"] is not None else None,
+                "system_level": round(corr_data["system_level"], 4) if corr_data["system_level"] is not None else None
+            }
+
+        # Export essence F1 scores
+        for sim_name, f1_data in essence_f1_scores.items():
+            export_data["essence_f1_scores"][sim_name] = {
+                "f1": round(f1_data["f1"], 4),
+                "precision": round(f1_data["precision"], 4),
+                "recall": round(f1_data["recall"], 4),
+                "support": f1_data["support"]
+            }
+
+        # Ensure parent directory exists
+        export_path = Path(args.export)
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(export_path, 'w') as f:
+            json.dump(export_data, f, indent=2)
+        print(f"\nResults exported to: {export_path}")
 
 if __name__ == "__main__":
     main()

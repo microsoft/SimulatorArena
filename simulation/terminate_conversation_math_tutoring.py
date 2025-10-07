@@ -11,15 +11,15 @@ import argparse
 import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
-from utils import generate_from_azure_openai_chat_completion, merge_nested_dicts
+from utils import generate_from_openai_chat_completion, merge_nested_dicts
 
 def parse_arguments():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description='Generate and save terminated math tutoring conversations.')
     parser.add_argument('--annotation_id', type=str, required=True,
-                        help='Annotation ID (e.g., good_annotations_50_benchmarking)')
+                        help='Annotation ID: math_tutoring_annotations or document_creation_annotations')
     parser.add_argument('--simulation_path', type=str, required=True,
-                        help='Path to simulation file (e.g., zero-shot-cot.json)')
+                        help='Path to simulation file relative to output/{annotation_id}/ (e.g., gpt-5-mini/zero-shot-cot.json or gpt-5-mini/zero-shot-cot_for_benchmarking.json)')
     return parser.parse_args()
 
 def get_ending_turn_number(text):
@@ -112,8 +112,7 @@ async def main():
                 # Find the math problem from annotations
                 math_problem = None
                 for annotation in annotations:
-                    annotation_key = f"{annotation['username']}_{annotation['workerId']}_{annotation['user_id']}"
-                    if (annotation['problem_id'] == int(problem_id) and annotation_key == key):
+                    if (annotation['problem_id'] == int(problem_id) and annotation['workerId'] == key):
                         math_problem = annotation["question"]
                         break
                 
@@ -166,12 +165,11 @@ async def main():
         return
     
     # Generate responses
-    responses = await generate_from_azure_openai_chat_completion(
-        azure_resource_name="dl-openai-3",
+    responses = await generate_from_openai_chat_completion(
         full_contexts=full_contexts,
-        model_name="gpt-4o",
-        temperature=0.7,
-        max_tokens=4000,
+        model_name="gpt-5-mini",
+        temperature=1.0,
+        max_tokens=10000,
         top_p=1.0,
         n=1,
         requests_per_minute=200,

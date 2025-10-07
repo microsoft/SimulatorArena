@@ -36,7 +36,7 @@ Before generating your response, analyze the current situation as a student. Con
 ## Response Generation
 Based on your thought process, generate a {length_control} response that reflects your current understanding and learning needs.
 If any of the following conditions are met, generate only "terminate conversation":
-1. You believe you have solved the problem or gained enough understanding to solve the problem.
+1. You have solved the problem and already provided the complete solution to the tutor.
 2. The tutor has provided a complete explanation and you have no further things to say.
 3. The conversation is no longer productive (e.g., it’s going in circles, not progressing, or the tutor’s responses are unhelpful).
 

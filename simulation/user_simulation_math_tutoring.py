@@ -58,15 +58,17 @@ def cli_parser():
     parser.add_argument("--refinement_message_style", type=str, default="",
                         help="Refinement message style (default: empty).")
     parser.add_argument("--annotation_id", type=str, default="math_tutoring_annotations",
-                        help="Annotation ID (default: good_annotations).")
+                        help="Annotation ID (default: math_tutoring_annotations).")
     parser.add_argument("--seed", type=int, default=2,
                         help="Random seed (default: 2).")
-    parser.add_argument("--user_model", type=str, default="gpt-4o",
-                        help="User model (default gpt-4o).")
+    parser.add_argument("--user_model", type=str, default="gpt-5-mini",
+                        help="User model (default gpt-5-mini).")
     parser.add_argument("--benchmarking", action="store_true",
                         help="Enable benchmarking mode (default: False).")
     parser.add_argument("--allowed_models", type=str, default="",
                         help="Comma-separated list of models to benchmark (e.g., 'gpt-5,claude-sonnet-4-20250514').")
+    parser.add_argument("--num_conversations", type=int, default=-1,
+                        help="Number of conversations to simulate. Use -1 for all conversations (default: -1).")
     return parser
 
 #########################
@@ -132,15 +134,12 @@ async def run_all_models(
     prompt_template=None,
     show_progress=True,
     user_profile=False,
-    sample_and_select=False,
     refinement=False,
     length_control=False,
     refinement_version="v1",
 ):
     tasks = []
     for model, problem_dict in model_problem_dict.items():
-
-        # code.interact(local=dict(globals(), **locals()))
 
         async def timed_process(model_name=model, prob_dict=problem_dict):
             """Wrap process_model with a per-model timeout."""
@@ -151,7 +150,6 @@ async def run_all_models(
                         prompt_initial_query_template, prompt_template,
                         show_progress,
                         user_profile=user_profile,
-                        sample_and_select=sample_and_select,
                         refinement=refinement,
                         length_control=length_control,
                         refinement_version=refinement_version,
@@ -217,7 +215,7 @@ async def main(args):
     )
     # Add benchmarking suffix if benchmarking mode is enabled
     if benchmarking:
-        file_name += "_benchmarking"
+        file_name += "_for_benchmarking"
     print(f"Output filename: {file_name}")
 
     #########################
@@ -266,10 +264,19 @@ async def main(args):
     # Load Annotations and Turker Conversations
     #########################
     annotations = []
-    annotation_path = f"../data/{annotation_id}.json"
+    # Use benchmarking annotations if in benchmarking mode
+    if benchmarking:
+        annotation_path = f"../data/{annotation_id}_for_benchmarking.json"
+    else:
+        annotation_path = f"../data/{annotation_id}.json"
     with open(annotation_path, "r") as f:
         annotations = json.load(f)
-    print(f"Loaded {len(annotations)} annotations.")
+    print(f"Loaded {len(annotations)} annotations from {annotation_path}.")
+
+    # Limit number of conversations if specified
+    if args.num_conversations > 0:
+        annotations = annotations[:args.num_conversations]
+        print(f"Limited to {len(annotations)} conversations based on --num_conversations argument.")
 
     # Filter annotations: if user_profile, require 'why_ask_tutor' field.
     filtered_annotations = []
@@ -281,13 +288,9 @@ async def main(args):
     print(f"After filtering data that has no why_ask_tuor, {len(annotations)} annotations remain.")
 
     # If output already exists, filter out annotations that have been simulated already.
-    if user_model == "gpt-4o":
-        output_dir = f"output/{annotation_id}"
-    else:
-        output_dir = f"output/{annotation_id}/{user_model}"
+    output_dir = f"output/{annotation_id}/{user_model}"
     out_file_path = f"{output_dir}/{file_name}.json"
 
-    # code.interact(local=dict(globals(), **locals())) # for debugging
     existing_output = {}
     if os.path.exists(out_file_path):
         with open(out_file_path, "r") as f:
@@ -382,8 +385,7 @@ async def main(args):
             query_style_text += f"- Length of User Message: The user's query/response is always {length_text}.\n"
             for feature in extracted_interaction_style_user_profile_dict.get(key, []):
                 query_style_text += f"- {feature['Feature Name']}: {feature['Feature Question Answer']}\n"
-     
-        # code.interact(local=dict(globals(), **locals())) # for debugging
+
         user_profile_list.append(profile_text.strip())
         user_initial_understanding_profiles.append(initial_understanding_text.strip())
         user_query_style_profiles.append(query_style_text.strip())
@@ -402,21 +404,14 @@ async def main(args):
     # Build model-problem dictionary
     #########################
 
+    model_problem_dict = {}
+
     if benchmarking:
         # In benchmarking mode, use user-specified models
         if not allowed_models_str:
             raise ValueError("--allowed_models must be specified when --benchmarking is enabled")
         allowed_models = [model.strip() for model in allowed_models_str.split(",")]
         print(f"Benchmarking mode enabled with models: {allowed_models}")
-    else:
-        # Default allowed models when not benchmarking
-        allowed_models = ["gpt-4o-mini", "gpt-4o", "llama-3-1-70b", 
-                          "llama-3-1-8b", "phi-3-small", "gpt-4-turbo", 
-                          "mistral-large-latest", "claude-3-5-sonnet-20240620", "phi-3-medium"]
-
-    model_problem_dict = {}
-
-    if benchmarking:
         # In benchmarking mode, run all specified models for each annotation
         for i, ann in enumerate(annotations):
             for model_name in allowed_models:
@@ -454,9 +449,6 @@ async def main(args):
     else:
         # Non-benchmarking mode: use model from annotation
         for i, ann in enumerate(annotations):
-            if ann["model"] not in allowed_models:
-                continue
-
             if ann["model"] not in model_problem_dict:
                 model_problem_dict[ann["model"]] = {
                     "problem": [],

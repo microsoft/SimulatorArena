@@ -23,16 +23,23 @@ SimulatorArena/
 
 Evaluate new AI assistant models on our multi-turn benchmark using state-of-the-art user simulators.
 
-#### Math Tutoring - Best Simulator Configuration
+**Note on User Simulator Models**:
+- **Default**: `gpt-5-mini` (cost-efficient, set as default in the scripts)
+- **Best from paper**: The configurations below reflect the best-performing simulators from our paper. Using more capable models like GPT-5 or GPT-4.1 as the user simulator will likely yield better simulation quality and correlation with human ratings.
+
+#### Math Tutoring - Best Simulator Configuration from Paper
 ```bash
 python user_simulation_math_tutoring.py \
     --version=zero-shot-cot-user-profile \
     --user_profile_version=interaction_style \
+    --user_model=gpt-4o-2024-05-13 \
     --benchmarking \
     --allowed_models "gpt-5,claude-sonnet-4-20250514,gemini-2.5-pro"
 ```
 
-#### Document Creation - Best Simulator Configuration  
+**Paper configuration**: `gpt-4o-2024-05-13` with interaction style user profile
+
+#### Document Creation - Best Simulator Configuration from Paper
 ```bash
 python user_simulation_document_creation.py \
     --version=zero-shot-cot-user-profile \
@@ -41,6 +48,8 @@ python user_simulation_document_creation.py \
     --benchmarking \
     --allowed_models "gpt-5,claude-opus-4-1-20250805,gemini-2.5-flash"
 ```
+
+**Paper configuration**: `gemini-2.0-flash` with document preference, writing, and interaction style profiles
 
 **Benchmarking Parameters**:
 - `--benchmarking`: Enable benchmarking mode to test multiple assistant models
@@ -119,6 +128,9 @@ python user_simulation_math_tutoring.py --version=zero-shot-cot
 
 # Document Creation
 python user_simulation_document_creation.py --version=zero-shot-cot
+
+# Quick test with limited conversations (useful for testing)
+python user_simulation_math_tutoring.py --version=zero-shot-cot --num_conversations=5
 ```
 
 #### Profile-Based Simulator
@@ -141,10 +153,15 @@ python user_simulation_document_creation.py \
 | Parameter | Description | Options |
 |-----------|-------------|---------|
 | `--version` | Simulator strategy | `zero-shot`, `zero-shot-cot`, `zero-shot-cot-user-profile` |
-| `--user_model` | Model for user simulation | `gpt-4o` (default 2024-05-13 version), `gemini-2.0-flash`, etc. |
+| `--user_model` | Model for user simulation | `gpt-5`, `gpt-5-mini`, `gemini-2.0-flash`, etc. |
 | `--annotation_id` | Dataset identifier | `math_tutoring_annotations`, `document_creation_annotations` |
+| `--num_conversations` | Limit number of conversations | Integer (default: -1 for all conversations) |
 | `--benchmarking` | Enable benchmarking mode | Flag to test multiple assistants |
-| `--allowed_models` | Assistant models to test | Comma-separated list (benchmarking mode) |
+| `--allowed_models` | Assistant models to test | Comma-separated list (for benchmarking mode only) |
+
+**GPT-5 Model Naming**:
+- Standard models (`gpt-5`, `gpt-5-mini`, `gpt-5-nano`): Use minimal reasoning effort
+- Thinking models (`gpt-5-thinking`, `gpt-5-mini-thinking`, `gpt-5-nano-thinking`): Use medium reasoning effort for more deliberate responses
 
 ### Profile Options
 
@@ -224,11 +241,11 @@ asyncio.run(run_with_vllm())
 ```python
 # Load different models
 user_model = initialize_vllm_model("meta-llama/Llama-3.1-8B-Instruct")
-assistant_model = initialize_vllm_model("mistralai/Mistral-7B-Instruct-v0.3")
+assistant_model = initialize_vllm_model("microsoft/phi-4")
 
 vllm_models = {
     "meta-llama/Llama-3.1-8B-Instruct": user_model,
-    "mistralai/Mistral-7B-Instruct-v0.3": assistant_model
+    "microsoft/phi-4": assistant_model
 }
 
 # Use in simulation - models are matched by name
@@ -250,7 +267,7 @@ vllm_model = initialize_vllm_model(
 ### Supported Models
 
 vLLM supports most popular open-source models:
-- **Llama**: 3.1, 3, 2 (8B, 70B, etc.)
+- **Llama**: 3.1, 3.3, (8B, 70B, etc.)
 - **Qwen**: Qwen3
 - **Gemma**: Gemma3
 - **Phi**: Phi-4
@@ -265,13 +282,15 @@ After running simulations, identify natural conversation endpoints:
 # Math Tutoring
 python terminate_conversation_math_tutoring.py \
     --annotation_id math_tutoring_annotations \
-    --simulation_path zero-shot-cot.json
+    --simulation_path gpt-5-mini/zero-shot-cot.json
 
-# Document Creation  
+# Document Creation
 python terminate_conversation_document_creation.py \
     --annotation_id document_creation_annotations \
-    --simulation_path zero-shot-cot.json
+    --simulation_path gpt-5-mini/zero-shot-cot.json
 ```
+
+**Note**: The `simulation_path` format is `{user_model}/{simulation_name}.json`. The script constructs the full path as `output/{annotation_id}/{simulation_path}`.
 
 ## 📈 Performance Benchmarks
 
@@ -292,7 +311,7 @@ python terminate_conversation_document_creation.py \
    - Developing simulators → Create custom prompts and configurations
 
 2. **Run simulations**:
-   - Outputs saved to `output/{annotation_id}/`
+   - Outputs saved to `output/{annotation_id}/{user_model}`
    - JSON format with full conversation histories
 
 3. **Process conversations**:
