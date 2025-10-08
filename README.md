@@ -374,7 +374,7 @@ The following figure shows the performance of different user simulator configura
 The chart compares various simulator strategies, from basic zero-shot generation to advanced profile-based approaches with different feature combinations. Higher correlation values indicate better alignment with human behavior.
 
 ## Acknowledgements
-We thank Jonathan Zheng for beta testing this codebase prior to public release.
+We thank Shirley Wu for helpful discussions and Jonathan Zheng for beta testing this codebase prior to public release.
 
 ## Contributing
 
