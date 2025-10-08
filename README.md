@@ -2,6 +2,15 @@
 
 **Are User Simulators Reliable Proxies for Multi-Turn Evaluation of AI Assistants?**
 
+<div align="left">
+
+[![](https://img.shields.io/badge/Website-SimulatorArena-blue?style=plastic&logo=Google%20Chrome)](https://www.simulatorarena.ai/)
+[![](https://img.shields.io/badge/Paper-arXiv-red?style=plastic&logo=arxiv)](https://arxiv.org/abs/2510.05444)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
+
 ## Welcome!
 
 This repository contains the code and data for SimulatorArena, a framework that enables: (1) benchmarking AI assistants through multi-turn conversations with user simulators, and (2) evaluating the reliability of user simulators as proxies for human users.
@@ -388,3 +397,16 @@ trademarks or logos is subject to and must follow
 [Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
 Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
 Any use of third-party trademarks or logos are subject to those third-party's policies.
+
+
+## Citation
+If you find SimulatorArena useful, please cite our paper:
+
+```bibtex
+@inproceedings{dou2025simulatorarena,
+  title={SimulatorArena: Are User Simulators Reliable Proxies for Multi-Turn Evaluation of {AI} Assistants?},
+  author={Dou, Yao and Galley, Michel and Peng, Baolin and Kedzie, Chris and Cai, Weixin and Ritter, Alan and Quirk, Chris and Xu, Wei and Gao, Jianfeng},
+  booktitle={The 2025 Conference on Empirical Methods in Natural Language Processing},
+  year={2025}
+}
+```
