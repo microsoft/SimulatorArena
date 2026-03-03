@@ -1,5 +1,5 @@
 openai
-gradio==4.41.0
+gradio==6.7.0
 pandas
 datasets
 huggingface_hub
